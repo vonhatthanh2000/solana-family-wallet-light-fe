@@ -51,10 +51,8 @@ export function PayloadPanel({
             <dd className="mono wrap">{payload.digest}</dd>
             <dt>Decoded length</dt>
             <dd>{digestLength === undefined ? "invalid" : `${digestLength} bytes`}</dd>
-            <dt>Signing protocol</dt>
-            <dd>v{payload.signingMessageVersion} · {payload.signingMessageEncoding}</dd>
-            <dt>Signing message</dt>
-            <dd className="mono wrap signing-message">{payload.signingMessage}</dd>
+            <dt>Signing input</dt>
+            <dd>Raw 32-byte digest</dd>
             <dt>Valid after</dt>
             <dd>{payload.validAfter} ({new Date(payload.validAfter * 1_000).toISOString()})</dd>
             <dt>Valid until</dt>
@@ -64,7 +62,7 @@ export function PayloadPanel({
           </dl>
           <div className="actions">
             <button onClick={onSign} disabled={Boolean(signabilityError) || awaitingApproval}>
-              {awaitingApproval ? "Waiting for Phantom…" : "Sign activation message with Phantom"}
+              {awaitingApproval ? "Waiting for Phantom…" : "Sign activation digest with Phantom"}
             </button>
           </div>
           {signabilityError && <p className="hint">Sign disabled: {signabilityError}</p>}

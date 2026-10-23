@@ -6,35 +6,6 @@ export interface SolanaMessageSigner {
   signMessage(message: Uint8Array): Promise<Uint8Array>;
 }
 
-export const SOLANA_ACTIVATION_MESSAGE_VERSION = 1 as const;
-export const SOLANA_ACTIVATION_MESSAGE_ENCODING = "utf8" as const;
-export const SOLANA_ACTIVATION_MESSAGE_PREFIX = "Family Wallet Solana activation v1";
-
-export function solanaActivationSigningMessage(digest: string): string {
-  if (!/^0x[0-9a-f]{64}$/.test(digest)) {
-    throw new Error("Solana activation digest must be canonical lowercase 0x-prefixed hex");
-  }
-  return `${SOLANA_ACTIVATION_MESSAGE_PREFIX}\nDigest: ${digest}`;
-}
-
-export function solanaActivationSigningBytes(digest: string): Uint8Array {
-  return new TextEncoder().encode(solanaActivationSigningMessage(digest));
-}
-
-function validateCanonicalSigningMessage(payload: SolanaOpenPayload): Uint8Array {
-  if (payload.signingMessageEncoding !== SOLANA_ACTIVATION_MESSAGE_ENCODING) {
-    throw new Error("Unsupported Solana signing-message encoding");
-  }
-  if (payload.signingMessageVersion !== SOLANA_ACTIVATION_MESSAGE_VERSION) {
-    throw new Error("Unsupported Solana signing-message version");
-  }
-  const expected = solanaActivationSigningMessage(payload.digest);
-  if (payload.signingMessage !== expected) {
-    throw new Error("INVALID_OPEN_PAYLOAD: Solana signing message is not canonical");
-  }
-  return new TextEncoder().encode(expected);
-}
-
 export function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes)
     .map((byte) => byte.toString(16).padStart(2, "0"))
@@ -63,7 +34,7 @@ export function getSignabilityError(
   if (!payload) return "Load a Solana payload first";
 
   try {
-    validateCanonicalSigningMessage(payload);
+    hexToBytes32(payload.digest);
   } catch (error) {
     return error instanceof Error ? error.message : "The digest is invalid";
   }
@@ -88,13 +59,13 @@ export async function signSolanaPayload(
   const signabilityError = getSignabilityError(payload, wallet);
   if (signabilityError) throw new Error(signabilityError);
 
-  const messageBytes = validateCanonicalSigningMessage(payload);
-  const signatureBytes = await wallet.signMessage(messageBytes);
+  const digestBytes = hexToBytes32(payload.digest);
+  const signatureBytes = await wallet.signMessage(digestBytes);
   if (signatureBytes.length !== 64) {
     throw new Error("Ed25519 signature must be exactly 64 bytes");
   }
-  if (!nacl.sign.detached.verify(messageBytes, signatureBytes, wallet.publicKeyBytes())) {
-    throw new Error("Signature does not verify over the canonical activation message");
+  if (!nacl.sign.detached.verify(digestBytes, signatureBytes, wallet.publicKeyBytes())) {
+    throw new Error("Signature does not verify over the raw 32-byte digest");
   }
   return bytesToHex(signatureBytes);
 }

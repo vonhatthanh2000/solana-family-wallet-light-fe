@@ -1,8 +1,12 @@
 # Phantom-compatible Solana activation signing migration
 
-Status: Proposed  
+Status: Rejected — the deployed contract supports signatures over the raw 32-byte digest only
 Scope: `tonpass-wallet-be`, `tonpass-wallet-fe`, and the FamilySpace Solana program  
 Primary flow: Family Space Solana activation (`initialize`)
+
+> Historical proposal only. Do not implement the versioned UTF-8 message protocol described
+> below unless the backend and Solana program are upgraded together. The current frontend decodes
+> `digest` from hexadecimal and signs those exact 32 bytes.
 
 ## 1. Objective
 

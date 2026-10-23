@@ -66,7 +66,7 @@ function walletFromPublicKey(
           `Phantom account changed from ${address} to ${activeProvider.publicKey.toBase58()}. Reload the payload for the active account.`,
         );
       }
-      const result = await activeProvider.signMessage(bytes, "utf8");
+      const result = await activeProvider.signMessage(bytes, "hex");
       return Uint8Array.from(result.signature);
     },
   };

@@ -38,7 +38,7 @@ describe("Phantom signing adapter", () => {
     const signature = await wallet.signMessage(new Uint8Array(32));
 
     expect(refreshedProvider.connect).not.toHaveBeenCalled();
-    expect(refreshedProvider.signMessage).toHaveBeenCalledWith(new Uint8Array(32), "utf8");
+    expect(refreshedProvider.signMessage).toHaveBeenCalledWith(new Uint8Array(32), "hex");
     expect(originalProvider.signMessage).not.toHaveBeenCalled();
     expect(signature).toEqual(new Uint8Array(64).fill(2));
   });

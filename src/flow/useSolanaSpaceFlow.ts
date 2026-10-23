@@ -332,10 +332,8 @@ export function useSolanaSpaceFlow() {
       dispatch({ type: "SIGNED", signatureHex });
       dispatch({
         type: "ADD_EVENT",
-        event: nowEvent("Sign canonical Solana activation message", "success", {
-          signingMessageVersion: payload.signingMessageVersion,
-          signingMessageEncoding: payload.signingMessageEncoding,
-          messageByteLength: new TextEncoder().encode(payload.signingMessage).length,
+        event: nowEvent("Sign raw Solana activation digest", "success", {
+          messageByteLength: 32,
           locallyVerified: true,
         }),
       });
@@ -346,7 +344,7 @@ export function useSolanaSpaceFlow() {
         status: "payload-ready",
         clearSignature: true,
       });
-      logFailure("Sign canonical Solana activation message", error);
+      logFailure("Sign raw Solana activation digest", error);
     }
   }, [logFailure]);
 
