@@ -1,3 +1,5 @@
+import type { SolanaMessageSigner } from "./signing";
+
 export type PublicKeyLike = {
   toBase58(): string;
   toBytes(): Uint8Array;
@@ -23,11 +25,9 @@ declare global {
   }
 }
 
-export type ConnectedWallet = {
+export type ConnectedWallet = SolanaMessageSigner & {
   address: string;
-  publicKeyBytes: Uint8Array;
   canSignMessage: boolean;
-  signMessage(bytes: Uint8Array): Promise<Uint8Array>;
 };
 
 export function getPhantom(): PhantomProvider {
@@ -51,7 +51,7 @@ function walletFromPublicKey(
   }
   return {
     address,
-    publicKeyBytes,
+    publicKeyBytes: () => Uint8Array.from(publicKeyBytes),
     canSignMessage: typeof provider.signMessage === "function",
     signMessage: async (bytes: Uint8Array) => {
       const activeProvider = getPhantom();
@@ -66,7 +66,7 @@ function walletFromPublicKey(
           `Phantom account changed from ${address} to ${activeProvider.publicKey.toBase58()}. Reload the payload for the active account.`,
         );
       }
-      const result = await activeProvider.signMessage(bytes, "hex");
+      const result = await activeProvider.signMessage(bytes, "utf8");
       return Uint8Array.from(result.signature);
     },
   };
@@ -80,13 +80,6 @@ export async function connectPhantom(): Promise<ConnectedWallet> {
 
 export async function disconnectPhantom(): Promise<void> {
   await getPhantom().disconnect();
-}
-
-export async function signRawMessage(bytes: Uint8Array): Promise<Uint8Array> {
-  const provider = getPhantom();
-  if (!provider.signMessage) throw new Error("Phantom does not support message signing");
-  const result = await provider.signMessage(bytes, "hex");
-  return Uint8Array.from(result.signature);
 }
 
 export function subscribeToPhantom(

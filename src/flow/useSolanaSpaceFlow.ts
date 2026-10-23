@@ -105,21 +105,6 @@ export function useSolanaSpaceFlow() {
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (
-      state.payload &&
-      state.status !== "expired" &&
-      state.status !== "deployed" &&
-      nowSeconds >= state.payload.validUntil - 15
-    ) {
-      dispatch({ type: "EXPIRED" });
-      dispatch({
-        type: "ADD_EVENT",
-        event: nowEvent("Payload validity", "failure", "Payload entered the 15-second safety window"),
-      });
-    }
-  }, [nowSeconds, state.payload, state.status]);
-
   const logFailure = useCallback((step: string, error: unknown) => {
     dispatch({
       type: "ADD_EVENT",
@@ -317,6 +302,27 @@ export function useSolanaSpaceFlow() {
     });
   }, [logFailure, runBusy]);
 
+  useEffect(() => {
+    const canRefreshExpiredPayload =
+      state.status === "payload-ready" || state.status === "signed";
+    if (
+      state.payload &&
+      canRefreshExpiredPayload &&
+      nowSeconds >= state.payload.validUntil - 15
+    ) {
+      dispatch({ type: "EXPIRED" });
+      dispatch({
+        type: "ADD_EVENT",
+        event: nowEvent(
+          "Payload validity",
+          "failure",
+          "Payload entered the 15-second safety window; requesting a fresh payload",
+        ),
+      });
+      void loadFreshPayload();
+    }
+  }, [loadFreshPayload, nowSeconds, state.payload, state.status]);
+
   const signPayload = useCallback(async () => {
     const { payload, connectedWallet } = stateRef.current;
     if (!payload || !connectedWallet) return;
@@ -326,9 +332,10 @@ export function useSolanaSpaceFlow() {
       dispatch({ type: "SIGNED", signatureHex });
       dispatch({
         type: "ADD_EVENT",
-        event: nowEvent("Sign raw digest", "success", {
-          digest: payload.digest,
-          signature: signatureHex,
+        event: nowEvent("Sign canonical Solana activation message", "success", {
+          signingMessageVersion: payload.signingMessageVersion,
+          signingMessageEncoding: payload.signingMessageEncoding,
+          messageByteLength: new TextEncoder().encode(payload.signingMessage).length,
           locallyVerified: true,
         }),
       });
@@ -339,7 +346,7 @@ export function useSolanaSpaceFlow() {
         status: "payload-ready",
         clearSignature: true,
       });
-      logFailure("Sign raw digest", error);
+      logFailure("Sign canonical Solana activation message", error);
     }
   }, [logFailure]);
 
@@ -467,6 +474,7 @@ export function useSolanaSpaceFlow() {
           type: "ERROR",
           error: diagnostic,
           status: stale ? "expired" : "failed",
+          clearPayload: stale || diagnostic.code === "INVALID_SIGNATURE",
           clearSignature: stale || diagnostic.code === "INVALID_SIGNATURE",
         });
         logFailure("Submit Solana activation", error);

@@ -52,6 +52,10 @@ export function DeploymentPanel({
         <dd className="mono wrap">{deployment?.address ?? "—"}</dd>
         <dt>Deploy error</dt>
         <dd>{deployment?.deployError ?? "—"}</dd>
+        <dt>Deposit availability</dt>
+        <dd className={passed ? "good" : "bad"}>
+          {passed ? "Deposits enabled" : "Deposits disabled"}
+        </dd>
       </dl>
       {passed ? (
         <div className="result success"><strong>PASS</strong> — deployed with a non-null address.</div>

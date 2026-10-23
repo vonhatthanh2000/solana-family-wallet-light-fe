@@ -21,7 +21,7 @@ export function WalletPanel({
   onRegister,
   onGetWallet,
 }: Props) {
-  const connectedHex = wallet ? publicKeyHex(wallet.publicKeyBytes) : undefined;
+  const connectedHex = wallet ? publicKeyHex(wallet.publicKeyBytes()) : undefined;
   const addressMatches = wallet && storedWallet
     ? wallet.address === storedWallet.address
     : undefined;

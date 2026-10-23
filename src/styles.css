@@ -114,6 +114,7 @@ dd { margin: 0; min-width: 0; }
 .failure { background: rgba(189, 57, 82, 0.13); border: 1px solid #7d3544; }
 .warning { background: rgba(223, 170, 54, 0.11); border: 1px solid #80652e; }
 .signature { margin-top: 8px; }
+.signing-message { white-space: pre-wrap; }
 .hint, .empty { color: #929eb4; font-size: 0.88rem; }
 
 details { margin-top: 14px; }

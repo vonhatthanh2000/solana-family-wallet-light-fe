@@ -69,7 +69,13 @@ export type FlowAction =
   | { type: "PENDING"; deployment?: SpaceChainDto }
   | { type: "DEPLOYMENT_UPDATED"; deployment: SpaceChainDto }
   | { type: "EXPIRED" }
-  | { type: "ERROR"; error: DiagnosticError; status?: FlowStatus; clearSignature?: boolean }
+  | {
+      type: "ERROR";
+      error: DiagnosticError;
+      status?: FlowStatus;
+      clearPayload?: boolean;
+      clearSignature?: boolean;
+    }
   | { type: "ADD_EVENT"; event: DebugEvent }
   | { type: "CLEAR_LOG" }
   | { type: "CLEAR_SESSION" };
@@ -189,11 +195,12 @@ export function flowReducer(state: FlowState, action: FlowAction): FlowState {
       return { ...state, deployment, status: "pending" };
     }
     case "EXPIRED":
-      return { ...state, signatureHex: undefined, status: "expired" };
+      return { ...state, payload: undefined, signatureHex: undefined, status: "expired" };
     case "ERROR":
       return {
         ...state,
         status: action.status ?? "failed",
+        payload: action.clearPayload ? undefined : state.payload,
         signatureHex: action.clearSignature ? undefined : state.signatureHex,
         error: action.error,
       };

@@ -43,6 +43,9 @@ export type SolanaOpenPayload = {
   programId: string;
   creator: `0x${string}`;
   digest: `0x${string}`;
+  signingMessage: string;
+  signingMessageEncoding: "utf8";
+  signingMessageVersion: 1;
   config: string;
   validAfter: number;
   validUntil: number;
@@ -154,6 +157,17 @@ function requireFiniteNumber(value: unknown, field: string): number {
   return value;
 }
 
+function requireLiteral<T extends string | number>(
+  value: unknown,
+  expected: T,
+  field: string,
+): T {
+  if (value !== expected) {
+    throw new Error(`Invalid Solana payload: ${field} must be ${JSON.stringify(expected)}`);
+  }
+  return expected;
+}
+
 export function isSolanaOpenPayload(value: unknown): value is SolanaOpenPayload {
   try {
     parseSolanaOpenPayload(value);
@@ -178,6 +192,13 @@ export function parseSolanaOpenPayload(value: unknown): SolanaOpenPayload {
     throw new Error("Invalid Solana payload: signing timestamps are invalid");
   }
 
+  const digest = requireHex(value.digest, "digest", 32);
+  if (!/^0x[0-9a-f]{64}$/.test(digest)) {
+    throw new Error(
+      "Invalid Solana payload: digest must be canonical lowercase 0x-prefixed hex",
+    );
+  }
+
   return {
     spaceId: requireHex(value.spaceId, "spaceId"),
     chainObjectId: requireString(value.chainObjectId, "chainObjectId"),
@@ -186,13 +207,26 @@ export function parseSolanaOpenPayload(value: unknown): SolanaOpenPayload {
     address: requireString(value.address, "address"),
     programId: requireString(value.programId, "programId"),
     creator: requireHex(value.creator, "creator", 32),
-    digest: requireHex(value.digest, "digest", 32),
+    digest,
+    signingMessage: requireString(value.signingMessage, "signingMessage"),
+    signingMessageEncoding: requireLiteral(
+      value.signingMessageEncoding,
+      "utf8",
+      "signingMessageEncoding",
+    ),
+    signingMessageVersion: requireLiteral(
+      value.signingMessageVersion,
+      1,
+      "signingMessageVersion",
+    ),
     config: requireString(value.config, "config"),
     validAfter,
     validUntil,
-    guardian: requireHex(value.guardian, "guardian"),
-    owner: requireHex(value.owner, "owner"),
-    members: value.members.map((member, index) => requireHex(member, `members[${index}]`)),
+    guardian: requireHex(value.guardian, "guardian", 32),
+    owner: requireHex(value.owner, "owner", 32),
+    members: value.members.map((member, index) =>
+      requireHex(member, `members[${index}]`, 32),
+    ),
   };
 }
 

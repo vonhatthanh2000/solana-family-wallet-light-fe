@@ -5,7 +5,7 @@ import { flowReducer, initialFlowState, type FlowState } from "./state";
 
 const wallet: ConnectedWallet = {
   address: "wallet",
-  publicKeyBytes: new Uint8Array(32),
+  publicKeyBytes: () => new Uint8Array(32),
   canSignMessage: true,
   signMessage: async () => new Uint8Array(64),
 };
@@ -19,11 +19,14 @@ const payload = {
   programId: "program",
   creator: `0x${"00".repeat(32)}`,
   digest: `0x${"11".repeat(32)}`,
+  signingMessage: `Family Wallet Solana activation v1\nDigest: 0x${"11".repeat(32)}`,
+  signingMessageEncoding: "utf8",
+  signingMessageVersion: 1,
   config: "config",
   validAfter: 1,
   validUntil: 2,
   guardian: "0x01",
-  owner: "0x02",
+  owner: `0x${"00".repeat(32)}`,
   members: ["0x03"],
 } satisfies SolanaOpenPayload;
 
@@ -96,6 +99,30 @@ describe("flowReducer", () => {
     expect(next.payload).toBeUndefined();
     expect(next.signatureHex).toBeUndefined();
   });
+
+  it("discards the one-use payload and signature when the payload expires", () => {
+    const next = flowReducer(activeState(), { type: "EXPIRED" });
+
+    expect(next.status).toBe("expired");
+    expect(next.payload).toBeUndefined();
+    expect(next.signatureHex).toBeUndefined();
+  });
+
+  it.each(["INVALID_SIGNATURE", "OPEN_PAYLOAD_STALE"])(
+    "requires a fresh payload after %s",
+    (code) => {
+      const next = flowReducer(activeState({ status: "submitting" }), {
+        type: "ERROR",
+        error: { source: "backend", code, message: code },
+        status: code === "OPEN_PAYLOAD_STALE" ? "expired" : "failed",
+        clearPayload: true,
+        clearSignature: true,
+      });
+
+      expect(next.payload).toBeUndefined();
+      expect(next.signatureHex).toBeUndefined();
+    },
+  );
 
   it("leaves an ambiguous Create failure stopped for explicit user action", () => {
     const next = flowReducer(activeState({ status: "submitting" }), {

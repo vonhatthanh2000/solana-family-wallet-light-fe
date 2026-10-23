@@ -29,9 +29,10 @@ export function PayloadPanel({
       digestLength = undefined;
     }
   }
-  const connectedHex = wallet ? publicKeyHex(wallet.publicKeyBytes) : undefined;
+  const connectedHex = wallet ? publicKeyHex(wallet.publicKeyBytes()) : undefined;
   const creatorMatches = payload && connectedHex
-    ? payload.creator.toLowerCase() === connectedHex.toLowerCase()
+    ? payload.creator.toLowerCase() === connectedHex.toLowerCase() &&
+      payload.owner.toLowerCase() === connectedHex.toLowerCase()
     : undefined;
 
   return (
@@ -44,12 +45,16 @@ export function PayloadPanel({
             <dd className="mono wrap">{payload.creator}</dd>
             <dt>Connected key</dt>
             <dd className="mono wrap">{connectedHex ?? "—"}</dd>
-            <dt>Creator match</dt>
+            <dt>Creator/owner match</dt>
             <dd className={creatorMatches ? "good" : "bad"}>{creatorMatches ? "yes" : "NO"}</dd>
             <dt>Digest</dt>
             <dd className="mono wrap">{payload.digest}</dd>
             <dt>Decoded length</dt>
             <dd>{digestLength === undefined ? "invalid" : `${digestLength} bytes`}</dd>
+            <dt>Signing protocol</dt>
+            <dd>v{payload.signingMessageVersion} · {payload.signingMessageEncoding}</dd>
+            <dt>Signing message</dt>
+            <dd className="mono wrap signing-message">{payload.signingMessage}</dd>
             <dt>Valid after</dt>
             <dd>{payload.validAfter} ({new Date(payload.validAfter * 1_000).toISOString()})</dd>
             <dt>Valid until</dt>
@@ -59,7 +64,7 @@ export function PayloadPanel({
           </dl>
           <div className="actions">
             <button onClick={onSign} disabled={Boolean(signabilityError) || awaitingApproval}>
-              {awaitingApproval ? "Waiting for Phantom…" : "Sign exact 32 digest bytes"}
+              {awaitingApproval ? "Waiting for Phantom…" : "Sign activation message with Phantom"}
             </button>
           </div>
           {signabilityError && <p className="hint">Sign disabled: {signabilityError}</p>}
