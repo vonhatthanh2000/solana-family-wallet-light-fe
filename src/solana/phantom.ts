@@ -45,18 +45,28 @@ function walletFromPublicKey(
   publicKey: PublicKeyLike,
 ): ConnectedWallet {
   const publicKeyBytes = Uint8Array.from(publicKey.toBytes());
+  const address = publicKey.toBase58();
   if (publicKeyBytes.length !== 32) {
     throw new Error("Phantom returned a Solana public key that is not 32 bytes");
   }
   return {
-    address: publicKey.toBase58(),
+    address,
     publicKeyBytes,
     canSignMessage: typeof provider.signMessage === "function",
     signMessage: async (bytes: Uint8Array) => {
-      if (!provider.signMessage) {
+      const activeProvider = getPhantom();
+      if (!activeProvider.signMessage) {
         throw new Error("This Phantom provider does not support signMessage");
       }
-      const result = await provider.signMessage(bytes, "hex");
+      if (activeProvider.isConnected === false || !activeProvider.publicKey) {
+        throw new Error("Phantom is disconnected. Click Connect Phantom, then try signing again.");
+      }
+      if (activeProvider.publicKey.toBase58() !== address) {
+        throw new Error(
+          `Phantom account changed from ${address} to ${activeProvider.publicKey.toBase58()}. Reload the payload for the active account.`,
+        );
+      }
+      const result = await activeProvider.signMessage(bytes, "hex");
       return Uint8Array.from(result.signature);
     },
   };

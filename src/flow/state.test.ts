@@ -48,6 +48,21 @@ describe("flowReducer", () => {
     expect(changed.signatureHex).toBeUndefined();
   });
 
+  it("keeps the payload while replacing a stale Phantom adapter for the same account", () => {
+    const reconnectedWallet = {
+      ...wallet,
+      signMessage: async () => new Uint8Array(64).fill(1),
+    };
+    const reconnected = flowReducer(activeState(), {
+      type: "WALLET_CHANGED",
+      wallet: reconnectedWallet,
+    });
+
+    expect(reconnected.connectedWallet).toBe(reconnectedWallet);
+    expect(reconnected.payload).toBe(payload);
+    expect(reconnected.signatureHex).toBe("ab".repeat(64));
+  });
+
   it("does not report deployed from pending without isDeployed and an address", () => {
     const deployment: SpaceChainDto = {
       chainObjectId: "chain",

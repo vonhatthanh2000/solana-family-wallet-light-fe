@@ -47,6 +47,16 @@ function nowEvent(
   return { at: new Date().toISOString(), step, outcome, detail };
 }
 
+function normalizePhantomError(error: unknown): DiagnosticError {
+  const diagnostic = normalizeError(error, "wallet");
+  const message = diagnostic.message.toLowerCase();
+  if (message.includes("disconnected port") || message.includes("service worker")) {
+    diagnostic.message =
+      "Phantom's browser-extension connection was lost. Reload this page, unlock Phantom, then click Connect Phantom again.";
+  }
+  return diagnostic;
+}
+
 export function useSolanaSpaceFlow() {
   const defaultApiUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000";
   const expectedNetwork = import.meta.env.VITE_EXPECTED_NETWORK || "testnet";
@@ -325,13 +335,36 @@ export function useSolanaSpaceFlow() {
     } catch (error) {
       dispatch({
         type: "ERROR",
-        error: normalizeError(error, "wallet"),
+        error: normalizePhantomError(error),
         status: "payload-ready",
         clearSignature: true,
       });
       logFailure("Sign raw digest", error);
     }
   }, [logFailure]);
+
+  const reopenPhantom = useCallback(async () => {
+    await runBusy("reopen-phantom", async () => {
+      try {
+        const connectedWallet = await connectPhantom();
+        dispatch({ type: "WALLET_CHANGED", wallet: connectedWallet });
+        dispatch({
+          type: "ADD_EVENT",
+          event: nowEvent("Reopen Phantom", "success", {
+            address: connectedWallet.address,
+          }),
+        });
+      } catch (error) {
+        dispatch({
+          type: "ERROR",
+          error: normalizePhantomError(error),
+          status: stateRef.current.payload ? "payload-ready" : "wallet-disconnected",
+          clearSignature: true,
+        });
+        logFailure("Reopen Phantom", error);
+      }
+    });
+  }, [logFailure, runBusy]);
 
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current !== undefined) window.clearInterval(pollTimerRef.current);
@@ -480,6 +513,7 @@ export function useSolanaSpaceFlow() {
     setSpaceId,
     loadFreshPayload,
     signPayload,
+    reopenPhantom,
     submitSignature,
     startPolling,
     stopPolling,

@@ -9,6 +9,9 @@ import { useSolanaSpaceFlow } from "./flow/useSolanaSpaceFlow";
 export default function App() {
   const flow = useSolanaSpaceFlow();
   const { state } = flow;
+  const shortWallet = state.connectedWallet
+    ? `${state.connectedWallet.address.slice(0, 4)}…${state.connectedWallet.address.slice(-4)}`
+    : undefined;
 
   return (
     <main>
@@ -18,7 +21,21 @@ export default function App() {
           <h1>Solana Space signing test</h1>
           <p>Inspect every boundary from Phantom connection through verified PDA deployment.</p>
         </div>
-        <span className={`status status-${state.status}`}>{state.status}</span>
+        <div className="header-actions">
+          {shortWallet && <span className="wallet-address mono">{shortWallet}</span>}
+          <button
+            className="secondary"
+            onClick={() => void flow.reopenPhantom()}
+            disabled={Boolean(flow.busyAction) || state.status === "awaiting-wallet-approval"}
+          >
+            {flow.busyAction === "reopen-phantom"
+              ? "Opening Phantom…"
+              : state.connectedWallet
+                ? "Reconnect Phantom"
+                : "Connect Phantom"}
+          </button>
+          <span className={`status status-${state.status}`}>{state.status}</span>
+        </div>
       </header>
 
       {state.error && (

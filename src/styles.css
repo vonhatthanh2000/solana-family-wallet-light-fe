@@ -33,6 +33,17 @@ header {
   margin-bottom: 28px;
 }
 
+.header-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.wallet-address { color: #bdc8db; }
+
 h1 { margin: 0; font-size: clamp(2rem, 5vw, 3.5rem); letter-spacing: -0.04em; }
 h2 { margin: 0 0 20px; font-size: 1.15rem; }
 p { line-height: 1.55; }
@@ -121,6 +132,7 @@ pre {
 @media (max-width: 680px) {
   main { width: min(100% - 20px, 1080px); padding-top: 24px; }
   header { display: block; }
+  .header-actions { justify-content: flex-start; margin-top: 12px; }
   .status { display: inline-block; margin-top: 12px; }
   .field-grid { grid-template-columns: 1fr; }
   dl { grid-template-columns: 1fr; gap: 2px; }
