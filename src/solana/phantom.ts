@@ -1,0 +1,109 @@
+export type PublicKeyLike = {
+  toBase58(): string;
+  toBytes(): Uint8Array;
+};
+
+export type PhantomProvider = {
+  isPhantom?: boolean;
+  isConnected?: boolean;
+  publicKey?: PublicKeyLike | null;
+  connect(): Promise<{ publicKey: PublicKeyLike }>;
+  disconnect(): Promise<void>;
+  signMessage?: (
+    message: Uint8Array,
+    display?: "hex" | "utf8",
+  ) => Promise<{ signature: Uint8Array; publicKey: PublicKeyLike }>;
+  on?: (event: "accountChanged" | "disconnect", handler: (value?: unknown) => void) => void;
+  off?: (event: "accountChanged" | "disconnect", handler: (value?: unknown) => void) => void;
+};
+
+declare global {
+  interface Window {
+    phantom?: { solana?: PhantomProvider };
+  }
+}
+
+export type ConnectedWallet = {
+  address: string;
+  publicKeyBytes: Uint8Array;
+  canSignMessage: boolean;
+  signMessage(bytes: Uint8Array): Promise<Uint8Array>;
+};
+
+export function getPhantom(): PhantomProvider {
+  const provider = window.phantom?.solana;
+  if (!provider?.isPhantom) {
+    throw new Error(
+      "Phantom was not found. Install the Phantom extension or open this page in Phantom's browser.",
+    );
+  }
+  return provider;
+}
+
+function walletFromPublicKey(
+  provider: PhantomProvider,
+  publicKey: PublicKeyLike,
+): ConnectedWallet {
+  const publicKeyBytes = Uint8Array.from(publicKey.toBytes());
+  if (publicKeyBytes.length !== 32) {
+    throw new Error("Phantom returned a Solana public key that is not 32 bytes");
+  }
+  return {
+    address: publicKey.toBase58(),
+    publicKeyBytes,
+    canSignMessage: typeof provider.signMessage === "function",
+    signMessage: async (bytes: Uint8Array) => {
+      if (!provider.signMessage) {
+        throw new Error("This Phantom provider does not support signMessage");
+      }
+      const result = await provider.signMessage(bytes, "hex");
+      return Uint8Array.from(result.signature);
+    },
+  };
+}
+
+export async function connectPhantom(): Promise<ConnectedWallet> {
+  const provider = getPhantom();
+  const { publicKey } = await provider.connect();
+  return walletFromPublicKey(provider, publicKey);
+}
+
+export async function disconnectPhantom(): Promise<void> {
+  await getPhantom().disconnect();
+}
+
+export async function signRawMessage(bytes: Uint8Array): Promise<Uint8Array> {
+  const provider = getPhantom();
+  if (!provider.signMessage) throw new Error("Phantom does not support message signing");
+  const result = await provider.signMessage(bytes, "hex");
+  return Uint8Array.from(result.signature);
+}
+
+export function subscribeToPhantom(
+  onWalletChange: (wallet: ConnectedWallet | undefined) => void,
+): () => void {
+  let provider: PhantomProvider;
+  try {
+    provider = getPhantom();
+  } catch {
+    return () => undefined;
+  }
+  const handleAccountChanged = (value?: unknown) => {
+    if (!value || typeof value !== "object") {
+      onWalletChange(undefined);
+      return;
+    }
+    try {
+      onWalletChange(walletFromPublicKey(provider, value as PublicKeyLike));
+    } catch {
+      onWalletChange(undefined);
+    }
+  };
+  const handleDisconnect = () => onWalletChange(undefined);
+  provider.on?.("accountChanged", handleAccountChanged);
+  provider.on?.("disconnect", handleDisconnect);
+  return () => {
+    provider.off?.("accountChanged", handleAccountChanged);
+    provider.off?.("disconnect", handleDisconnect);
+  };
+}
