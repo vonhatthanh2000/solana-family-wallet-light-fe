@@ -12,6 +12,9 @@ export default function App() {
   const shortWallet = state.connectedWallet
     ? `${state.connectedWallet.address.slice(0, 4)}…${state.connectedWallet.address.slice(-4)}`
     : undefined;
+  const selectedWalletOption = flow.walletOptions.find(
+    (wallet) => wallet.id === flow.selectedWalletId,
+  );
 
   return (
     <main>
@@ -19,24 +22,70 @@ export default function App() {
         <div>
           <p className="eyebrow">Backend diagnostic client</p>
           <h1>Solana Space signing test</h1>
-          <p>Inspect every boundary from Phantom connection through verified PDA deployment.</p>
+          <p>Inspect every boundary from signing wallet through verified PDA deployment.</p>
         </div>
         <div className="header-actions">
           {shortWallet && <span className="wallet-address mono">{shortWallet}</span>}
+          {selectedWalletOption && (
+            <img
+              className="wallet-icon"
+              src={selectedWalletOption.icon}
+              alt={`${selectedWalletOption.name} icon`}
+            />
+          )}
+          <label className="wallet-select">
+            <span>Signing wallet</span>
+            <select
+              aria-label="Select wallet"
+              value={flow.selectedWalletId}
+              onChange={(event) => flow.selectWallet(event.target.value)}
+              disabled={Boolean(flow.busyAction) || state.status === "awaiting-wallet-approval"}
+            >
+              <option value="">
+                {flow.walletOptions.length ? "Select wallet" : "No compatible wallet found"}
+              </option>
+              {flow.walletOptions.map((wallet) => (
+                <option key={wallet.id} value={wallet.id}>{wallet.name}</option>
+              ))}
+            </select>
+            {!flow.walletOptions.length && (
+              <small>Install or unlock Solflare in this browser profile, then reload.</small>
+            )}
+          </label>
           <button
             className="secondary"
-            onClick={() => void flow.reopenPhantom()}
-            disabled={Boolean(flow.busyAction) || state.status === "awaiting-wallet-approval"}
+            onClick={() => void flow.connectWallet()}
+            disabled={
+              !flow.selectedWalletId ||
+              Boolean(flow.busyAction) ||
+              state.status === "awaiting-wallet-approval"
+            }
           >
-            {flow.busyAction === "reopen-phantom"
-              ? "Opening Phantom…"
-              : state.connectedWallet
-                ? "Reconnect Phantom"
-                : "Connect Phantom"}
+            {flow.busyAction === "connect-wallet"
+              ? "Opening wallet…"
+              : state.connectedWallet && state.connectedWallet.provider !== "Test keypair"
+                ? "Reconnect wallet"
+                : "Connect wallet"}
           </button>
+          {import.meta.env.DEV && (
+            <button
+              className="secondary"
+              onClick={() => void flow.useTestSigner()}
+              disabled={Boolean(flow.busyAction) || state.status === "awaiting-wallet-approval"}
+            >
+              {flow.busyAction === "connect-test-signer" ? "Creating test signer…" : "Use test signer"}
+            </button>
+          )}
           <span className={`status status-${state.status}`}>{state.status}</span>
         </div>
       </header>
+
+      {import.meta.env.DEV && state.connectedWallet?.provider === "Test keypair" && (
+        <aside className="error" role="alert">
+          <strong>TEST SIGNER</strong>
+          <p>Development only. Do not fund this address.</p>
+        </aside>
+      )}
 
       {state.error && (
         <aside className="error" role="alert">

@@ -1,7 +1,7 @@
 import nacl from "tweetnacl";
 import { describe, expect, it, vi } from "vitest";
 import type { SolanaOpenPayload } from "../api/types";
-import type { ConnectedWallet } from "./phantom";
+import type { ConnectedSigner } from "./signers/types";
 import {
   bytesToHex,
   hexToBytes32,
@@ -36,12 +36,13 @@ function walletFor(
   keyPair: nacl.SignKeyPair,
   signer: (bytes: Uint8Array) => Uint8Array = (bytes) =>
     nacl.sign.detached(bytes, keyPair.secretKey),
-): ConnectedWallet {
+): ConnectedSigner {
   return {
     address: "base58-address",
+    provider: "Test",
     publicKeyBytes: () => Uint8Array.from(keyPair.publicKey),
-    canSignMessage: true,
-    signMessage: async (bytes) => signer(bytes),
+    canSignDigest: true,
+    signDigest32: async (bytes) => signer(bytes),
   };
 }
 
@@ -72,6 +73,21 @@ describe("publicKeyHex", () => {
 });
 
 describe("signSolanaPayload", () => {
+  it("blocks a connected provider that cannot sign raw digests", async () => {
+    const keyPair = nacl.sign.keyPair();
+    const creator = publicKeyHex(keyPair.publicKey);
+    const signDigest32 = vi.fn(async () => new Uint8Array(64));
+
+    await expect(signSolanaPayload(payload({ creator, owner: creator }), {
+      address: "base58-address",
+      provider: "Read-only wallet",
+      canSignDigest: false,
+      publicKeyBytes: () => keyPair.publicKey,
+      signDigest32,
+    })).rejects.toThrow("does not support raw digest signing");
+    expect(signDigest32).not.toHaveBeenCalled();
+  });
+
   it("rejects a connected key different from payload.creator", async () => {
     const keyPair = nacl.sign.keyPair();
     await expect(signSolanaPayload(payload(), walletFor(keyPair))).rejects.toThrow(
@@ -82,15 +98,21 @@ describe("signSolanaPayload", () => {
   it("rejects a payload owner different from the connected creator before signing", async () => {
     const keyPair = nacl.sign.keyPair();
     const creator = publicKeyHex(keyPair.publicKey);
-    const signMessage = vi.fn(async () => new Uint8Array(64));
+    const signDigest32 = vi.fn(async () => new Uint8Array(64));
 
     await expect(
       signSolanaPayload(
         payload({ creator, owner: `0x${"ff".repeat(32)}` }),
-        { publicKeyBytes: () => keyPair.publicKey, signMessage },
+        {
+          address: "base58-address",
+          provider: "Test",
+          canSignDigest: true,
+          publicKeyBytes: () => keyPair.publicKey,
+          signDigest32,
+        },
       ),
     ).rejects.toThrow("payload.creator and payload.owner");
-    expect(signMessage).not.toHaveBeenCalled();
+    expect(signDigest32).not.toHaveBeenCalled();
   });
 
   it("rejects expired and nearly-expired payloads", async () => {
@@ -104,7 +126,7 @@ describe("signSolanaPayload", () => {
     ).rejects.toThrow("Activation payload is expiring; request a fresh payload");
   });
 
-  it("passes the raw 32-byte digest to Phantom and verifies the signature", async () => {
+  it("passes the raw 32-byte digest to the connected wallet and verifies the signature", async () => {
     const keyPair = nacl.sign.keyPair();
     const creator = publicKeyHex(keyPair.publicKey);
     let signedBytes: Uint8Array | undefined;

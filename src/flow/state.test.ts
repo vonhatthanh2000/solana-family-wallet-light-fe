@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { SolanaOpenPayload, SpaceChainDto } from "../api/types";
-import type { ConnectedWallet } from "../solana/phantom";
+import type { ConnectedSigner } from "../solana/signers/types";
 import { flowReducer, initialFlowState, type FlowState } from "./state";
 
-const wallet: ConnectedWallet = {
+const wallet: ConnectedSigner = {
   address: "wallet",
+  provider: "Test",
   publicKeyBytes: () => new Uint8Array(32),
-  canSignMessage: true,
-  signMessage: async () => new Uint8Array(64),
+  canSignDigest: true,
+  signDigest32: async () => new Uint8Array(64),
 };
 
 const payload = {
@@ -48,10 +49,10 @@ describe("flowReducer", () => {
     expect(changed.signatureHex).toBeUndefined();
   });
 
-  it("keeps the payload while replacing a stale Phantom adapter for the same account", () => {
+  it("keeps the payload while replacing a stale wallet adapter for the same account", () => {
     const reconnectedWallet = {
       ...wallet,
-      signMessage: async () => new Uint8Array(64).fill(1),
+      signDigest32: async () => new Uint8Array(64).fill(1),
     };
     const reconnected = flowReducer(activeState(), {
       type: "WALLET_CHANGED",

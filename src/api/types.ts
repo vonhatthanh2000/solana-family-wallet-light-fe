@@ -23,15 +23,18 @@ export type WalletGroupDto = {
   walletIndex: number;
   selected: boolean;
   isHidden: boolean;
+  walletIds?: Array<WalletDto | string>;
 };
 
 export type WalletDto = {
   _id: string;
   chainId: string;
-  chain: "SOL";
+  chain: string;
   address: string;
-  walletIndex: number;
+  publicKey?: string | null;
+  walletIndex?: number | null;
   isActive: boolean;
+  walletGroup?: WalletGroupDto | null;
 };
 
 export type SolanaOpenPayload = {

@@ -1,24 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { canonicalSolanaPayload } from "./solanaPayload.fixture";
 import { parseSolanaOpenPayload } from "./types";
 
-const digest = `0x${"ab".repeat(32)}`;
+const digest = canonicalSolanaPayload.digest;
 
 function validPayload(overrides: Record<string, unknown> = {}) {
   return {
-    spaceId: "0x01",
-    chainObjectId: "chain-object-id",
-    chainId: "67",
-    chainType: "SOL",
-    address: "space-pda",
-    programId: "program-id",
-    creator: `0x${"11".repeat(32)}`,
-    digest,
-    config: "config",
-    validAfter: 1_790_000_000,
-    validUntil: 1_790_000_300,
-    guardian: `0x${"22".repeat(32)}`,
-    owner: `0x${"11".repeat(32)}`,
-    members: [`0x${"33".repeat(32)}`],
+    ...canonicalSolanaPayload,
     ...overrides,
   };
 }
@@ -34,6 +22,13 @@ describe("parseSolanaOpenPayload", () => {
   it.each([
     ["uppercase digest", { digest: `0x${"AB".repeat(32)}` }],
     ["fractional validAfter", { validAfter: 1.5 }],
+    ["missing chain id", { chainId: undefined }],
+    ["missing chain type", { chainType: undefined }],
+    ["invalid creator", { creator: "0x11" }],
+    ["invalid guardian", { guardian: "0x22" }],
+    ["invalid owner", { owner: "0x33" }],
+    ["non-array members", { members: "0x44" }],
+    ["reversed validity window", { validUntil: canonicalSolanaPayload.validAfter }],
   ])("rejects unsupported or malformed %s", (_label, overrides) => {
     expect(() => parseSolanaOpenPayload(validPayload(overrides))).toThrow(
       "Invalid Solana payload",

@@ -1,10 +1,10 @@
 import type { SolanaOpenPayload } from "../api/types";
-import type { ConnectedWallet } from "../solana/phantom";
+import type { ConnectedSigner } from "../solana/signers/types";
 import { hexToBytes32, publicKeyHex } from "../solana/signing";
 
 type Props = {
   payload?: SolanaOpenPayload;
-  wallet?: ConnectedWallet;
+  wallet?: ConnectedSigner;
   signatureHex?: string;
   secondsRemaining?: number;
   signabilityError?: string;
@@ -62,7 +62,7 @@ export function PayloadPanel({
           </dl>
           <div className="actions">
             <button onClick={onSign} disabled={Boolean(signabilityError) || awaitingApproval}>
-              {awaitingApproval ? "Waiting for Phantom…" : "Sign activation digest with Phantom"}
+              {awaitingApproval ? "Waiting for signing approval…" : "Sign activation digest"}
             </button>
           </div>
           {signabilityError && <p className="hint">Sign disabled: {signabilityError}</p>}

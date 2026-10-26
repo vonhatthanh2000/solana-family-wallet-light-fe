@@ -2,19 +2,26 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { ApiError, setApiClientConfiguration, setApiDebugListener } from "../api/client";
 import {
   activateSolana as activateSolanaRequest,
-  createWalletGroup,
-  createSpace as createSpaceRequest,
   extractSolanaPayload,
   getChains,
   getDepositAddresses,
   getSolanaPayload,
-  getWallets,
-  registerWallet as registerWalletRequest,
 } from "../api/endpoints";
 import type { DebugEvent, DiagnosticError, SpaceChainDto } from "../api/types";
-import { connectPhantom } from "../solana/phantom";
 import { getSignabilityError, signSolanaPayload } from "../solana/signing";
+import {
+  connectStandardWallet,
+  listCompatibleSolanaWallets,
+  subscribeToCompatibleSolanaWallets,
+  subscribeToStandardWallet,
+} from "../solana/wallet-standard";
 import { flowReducer, initialFlowState, normalizeError } from "./state";
+import {
+  createSpaceWithEffectiveWallet,
+  reconcileEffectiveWallets,
+  type EffectiveWalletContext,
+  WalletReconciliationError,
+} from "./wallet-reconciliation";
 
 const API_URL_KEY = "solana-test.apiBaseUrl";
 const JWT_KEY = "solana-test.jwt";
@@ -47,12 +54,12 @@ function nowEvent(
   return { at: new Date().toISOString(), step, outcome, detail };
 }
 
-function normalizePhantomError(error: unknown): DiagnosticError {
+function normalizeWalletError(error: unknown): DiagnosticError {
   const diagnostic = normalizeError(error, "wallet");
   const message = diagnostic.message.toLowerCase();
   if (message.includes("disconnected port") || message.includes("service worker")) {
     diagnostic.message =
-      "Phantom's browser-extension connection was lost. Reload this page, unlock Phantom, then click Connect Phantom again.";
+      "The wallet browser-extension connection was lost. Reload this page, unlock the selected wallet, then reconnect it.";
   }
   return diagnostic;
 }
@@ -74,6 +81,10 @@ export function useSolanaSpaceFlow() {
     () => `Solana signing test ${new Date().toISOString()}`,
   );
   const [createSpaceError, setCreateSpaceError] = useState<DiagnosticError>();
+  const [walletOptions, setWalletOptions] = useState(() => listCompatibleSolanaWallets());
+  const [selectedWalletId, setSelectedWalletId] = useState(
+    () => walletOptions.length === 1 ? walletOptions[0]!.id : "",
+  );
   const [busyAction, setBusyAction] = useState<string>();
   const [polling, setPolling] = useState(false);
   const [nowSeconds, setNowSeconds] = useState(() => Math.floor(Date.now() / 1000));
@@ -100,6 +111,21 @@ export function useSolanaSpaceFlow() {
     return () => setApiDebugListener(undefined);
   }, []);
 
+  useEffect(() => subscribeToCompatibleSolanaWallets((wallets) => {
+    setWalletOptions(wallets);
+    setSelectedWalletId((current) => {
+      if (wallets.some((wallet) => wallet.id === current)) return current;
+      return wallets.length === 1 ? wallets[0]!.id : "";
+    });
+  }), []);
+
+  useEffect(() => {
+    if (!selectedWalletId) return;
+    return subscribeToStandardWallet(selectedWalletId, (wallet) => {
+      dispatch({ type: "WALLET_CHANGED", wallet });
+    });
+  }, [selectedWalletId]);
+
   useEffect(() => {
     const timer = window.setInterval(() => setNowSeconds(Math.floor(Date.now() / 1000)), 1_000);
     return () => window.clearInterval(timer);
@@ -120,6 +146,59 @@ export function useSolanaSpaceFlow() {
       setBusyAction(undefined);
     }
   }, []);
+
+  const connectedSignerOrSelectedWallet = useCallback(async () => {
+    if (stateRef.current.connectedWallet) return stateRef.current.connectedWallet;
+    if (!selectedWalletId) throw new Error("Select a compatible Solana wallet first");
+    return connectStandardWallet(selectedWalletId);
+  }, [selectedWalletId]);
+
+  const selectWallet = useCallback((id: string) => {
+    setSelectedWalletId(id);
+    dispatch({ type: "WALLET_CHANGED", wallet: undefined });
+  }, []);
+
+  const applyWalletContext = useCallback((context: EffectiveWalletContext) => {
+    dispatch({
+      type: "GROUPS_LOADED",
+      groups: context.walletGroups,
+      selected: context.walletGroup,
+    });
+    dispatch({ type: "CHAIN_LOADED", chain: context.solanaChain });
+    dispatch({ type: "WALLET_REGISTERED", wallet: context.solanaWallet });
+  }, []);
+
+  const connectWallet = useCallback(async () => {
+    if (!selectedWalletId) {
+      dispatch({
+        type: "ERROR",
+        error: { source: "wallet", message: "Select a compatible Solana wallet first" },
+        status: stateRef.current.payload ? "payload-ready" : "wallet-disconnected",
+      });
+      return;
+    }
+    await runBusy("connect-wallet", async () => {
+      try {
+        const wallet = await connectStandardWallet(selectedWalletId);
+        dispatch({ type: "WALLET_CHANGED", wallet });
+        dispatch({
+          type: "ADD_EVENT",
+          event: nowEvent("Connect wallet", "success", {
+            provider: wallet.provider,
+            address: wallet.address,
+          }),
+        });
+      } catch (error) {
+        dispatch({
+          type: "ERROR",
+          error: normalizeWalletError(error),
+          status: stateRef.current.payload ? "payload-ready" : "wallet-disconnected",
+          clearSignature: true,
+        });
+        logFailure("Connect wallet", error);
+      }
+    });
+  }, [logFailure, runBusy, selectedWalletId]);
 
   const testApi = useCallback(async () => {
     if (!apiBaseUrl.trim() || !jwt.trim()) {
@@ -159,50 +238,36 @@ export function useSolanaSpaceFlow() {
     }
     await runBusy("register-wallet", async () => {
       try {
-        const walletGroup = await createWalletGroup("Main Wallet");
-        if (!Number.isInteger(walletGroup.walletIndex) || walletGroup.walletIndex < 0) {
-          throw new Error("Wallet-group response is missing a valid walletIndex");
-        }
-        dispatch({ type: "GROUPS_LOADED", groups: [walletGroup], selected: walletGroup });
-
-        const connectedWallet = await connectPhantom();
+        const connectedWallet = await connectedSignerOrSelectedWallet();
         dispatch({ type: "WALLET_CHANGED", wallet: connectedWallet });
-
-        const chains = await getChains();
-        const chain = chains.items.find(
-          (item) =>
-            item.chainType === "SOL" &&
-            item.network === expectedNetwork &&
-            item.isActive === true,
-        );
-        if (!chain) {
-          throw new Error(
-            `No active Solana ${expectedNetwork} chain was returned. Check DEFAULT_NETWORK, the active chain row, and the backend database.`,
-          );
-        }
-        dispatch({ type: "CHAIN_LOADED", chain });
-
-        const wallet = await registerWalletRequest({
-          chainId: chain._id,
-          address: connectedWallet.address,
-          publicKey: connectedWallet.address,
-          walletIndex: walletGroup.walletIndex,
+        const context = await reconcileEffectiveWallets({
+          connectedAddress: connectedWallet.address,
+          expectedNetwork,
+          allowRegistration: true,
         });
-        if (wallet.address !== connectedWallet.address) {
-          throw new Error(
-            `Stored address ${wallet.address} does not match connected Phantom address ${connectedWallet.address}.`,
-          );
-        }
-        if (wallet.walletIndex !== walletGroup.walletIndex) {
-          throw new Error("The backend returned a wallet at a different wallet index");
-        }
-        dispatch({ type: "WALLET_REGISTERED", wallet });
+        applyWalletContext(context);
+        dispatch({
+          type: "ADD_EVENT",
+          event: nowEvent("Reconcile Solana wallet", "success", {
+            provider: connectedWallet.provider,
+            address: context.solanaWallet.address,
+            walletIndex: context.solanaWallet.walletIndex ?? 0,
+          }),
+        });
       } catch (error) {
         dispatch({ type: "ERROR", error: normalizeError(error, "backend") });
-        logFailure("Create Solana wallet", error);
+        logFailure("Reconcile Solana wallet", error);
       }
     });
-  }, [apiBaseUrl, expectedNetwork, jwt, logFailure, runBusy]);
+  }, [
+    apiBaseUrl,
+    applyWalletContext,
+    connectedSignerOrSelectedWallet,
+    expectedNetwork,
+    jwt,
+    logFailure,
+    runBusy,
+  ]);
 
   const getExistingWallet = useCallback(async () => {
     if (!apiBaseUrl.trim() || !jwt.trim()) {
@@ -216,46 +281,44 @@ export function useSolanaSpaceFlow() {
 
     await runBusy("get-wallet", async () => {
       try {
-        const connectedWallet = await connectPhantom();
+        const connectedWallet = await connectedSignerOrSelectedWallet();
         dispatch({ type: "WALLET_CHANGED", wallet: connectedWallet });
-
-        const chains = await getChains();
-        const chain = chains.items.find(
-          (item) =>
-            item.chainType === "SOL" &&
-            item.network === expectedNetwork &&
-            item.isActive === true,
-        );
-        if (!chain) {
-          throw new Error(
-            `No active Solana ${expectedNetwork} chain was returned. Check DEFAULT_NETWORK, the active chain row, and the backend database.`,
-          );
-        }
-        dispatch({ type: "CHAIN_LOADED", chain });
-
-        const wallets = await getWallets(chain._id);
-        const wallet = wallets.find(
-          (item) => item.isActive && item.address === connectedWallet.address,
-        );
-        if (!wallet) {
-          throw new Error(
-            `No active backend Solana wallet matches Phantom address ${connectedWallet.address}.`,
-          );
-        }
-        dispatch({ type: "WALLET_REGISTERED", wallet });
+        const context = await reconcileEffectiveWallets({
+          connectedAddress: connectedWallet.address,
+          expectedNetwork,
+          allowRegistration: false,
+        });
+        applyWalletContext(context);
       } catch (error) {
         dispatch({ type: "ERROR", error: normalizeError(error, "backend") });
         logFailure("Get existing Solana wallet", error);
       }
     });
-  }, [apiBaseUrl, expectedNetwork, jwt, logFailure, runBusy]);
+  }, [
+    apiBaseUrl,
+    applyWalletContext,
+    connectedSignerOrSelectedWallet,
+    expectedNetwork,
+    jwt,
+    logFailure,
+    runBusy,
+  ]);
 
   const createSpace = useCallback(async () => {
     if (!spaceName.trim()) return;
     setCreateSpaceError(undefined);
     await runBusy("create-space", async () => {
       try {
-        const response = await createSpaceRequest(spaceName.trim());
+        const connectedWallet = stateRef.current.connectedWallet;
+        if (!connectedWallet) {
+          throw new WalletReconciliationError("Connect a compatible Solana wallet first");
+        }
+        const { context, response } = await createSpaceWithEffectiveWallet({
+          name: spaceName.trim(),
+          connectedAddress: connectedWallet.address,
+          expectedNetwork,
+        });
+        applyWalletContext(context);
         const payload = extractSolanaPayload(response);
         const skipped = response.initialize?.skipped?.find((item) => item.chainType === "SOL");
         dispatch({
@@ -268,7 +331,7 @@ export function useSolanaSpaceFlow() {
         writeSession(SPACE_ID_KEY, response.spaceId);
       } catch (error) {
         const diagnostic = normalizeError(error, "backend");
-        if (!(error instanceof ApiError)) {
+        if (!(error instanceof ApiError) && !(error instanceof WalletReconciliationError)) {
           diagnostic.message = `Create result is ambiguous because the request failed at the network boundary. Check the backend before retrying. ${diagnostic.message}`;
         }
         setCreateSpaceError(diagnostic);
@@ -276,7 +339,7 @@ export function useSolanaSpaceFlow() {
         logFailure("Create Space (not automatically retried)", error);
       }
     });
-  }, [logFailure, runBusy, spaceName]);
+  }, [applyWalletContext, expectedNetwork, logFailure, runBusy, spaceName]);
 
   const setSpaceId = useCallback((spaceId: string) => {
     dispatch({ type: "SPACE_ID_CHANGED", spaceId: spaceId.trim() });
@@ -340,7 +403,7 @@ export function useSolanaSpaceFlow() {
     } catch (error) {
       dispatch({
         type: "ERROR",
-        error: normalizePhantomError(error),
+        error: normalizeWalletError(error),
         status: "payload-ready",
         clearSignature: true,
       });
@@ -348,25 +411,34 @@ export function useSolanaSpaceFlow() {
     }
   }, [logFailure]);
 
-  const reopenPhantom = useCallback(async () => {
-    await runBusy("reopen-phantom", async () => {
+  const useTestSigner = useCallback(async () => {
+    if (!import.meta.env.DEV) {
+      dispatch({
+        type: "ERROR",
+        error: { source: "wallet", message: "The test signer is available only in development" },
+      });
+      return;
+    }
+    await runBusy("connect-test-signer", async () => {
       try {
-        const connectedWallet = await connectPhantom();
+        setSelectedWalletId("");
+        const { createTestKeypairSigner } = await import("../solana/signers/test-keypair");
+        const connectedWallet = createTestKeypairSigner();
         dispatch({ type: "WALLET_CHANGED", wallet: connectedWallet });
         dispatch({
           type: "ADD_EVENT",
-          event: nowEvent("Reopen Phantom", "success", {
+          event: nowEvent("Use development test signer", "success", {
             address: connectedWallet.address,
           }),
         });
       } catch (error) {
         dispatch({
           type: "ERROR",
-          error: normalizePhantomError(error),
+          error: normalizeError(error, "wallet"),
           status: stateRef.current.payload ? "payload-ready" : "wallet-disconnected",
           clearSignature: true,
         });
-        logFailure("Reopen Phantom", error);
+        logFailure("Use development test signer", error);
       }
     });
   }, [logFailure, runBusy]);
@@ -506,6 +578,9 @@ export function useSolanaSpaceFlow() {
     spaceName,
     setSpaceName,
     createSpaceError,
+    walletOptions,
+    selectedWalletId,
+    selectWallet,
     busyAction,
     polling,
     nowSeconds,
@@ -519,7 +594,8 @@ export function useSolanaSpaceFlow() {
     setSpaceId,
     loadFreshPayload,
     signPayload,
-    reopenPhantom,
+    connectWallet,
+    useTestSigner,
     submitSignature,
     startPolling,
     stopPolling,

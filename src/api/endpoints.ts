@@ -39,6 +39,12 @@ export function createWalletGroup(name: string): Promise<WalletGroupDto> {
   });
 }
 
+export async function getWalletGroups(): Promise<WalletGroupDto[]> {
+  const response = await apiRequest<WalletGroupDto[]>("/wallets/groups");
+  if (!Array.isArray(response)) throw new Error("Wallet-group response is not an array");
+  return response;
+}
+
 export async function getWallets(chainObjectId: string): Promise<WalletDto[]> {
   const path = `/wallets?chainId=${encodeURIComponent(chainObjectId)}`;
   const response = await apiRequest<WalletDto[] | { items: WalletDto[] }>(path);

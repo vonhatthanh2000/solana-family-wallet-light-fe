@@ -1,6 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, setApiClientConfiguration, setApiDebugListener } from "./client";
-import { activateSolana, createSpace, createWalletGroup, getWallets, registerWallet } from "./endpoints";
+import {
+  activateSolana,
+  createSpace,
+  createWalletGroup,
+  extractSolanaPayload,
+  getSolanaPayload,
+  getWalletGroups,
+  getWallets,
+  registerWallet,
+} from "./endpoints";
+import { canonicalSolanaPayload } from "./solanaPayload.fixture";
 import type { DebugEvent } from "./types";
 
 function jsonResponse(body: unknown): Response {
@@ -55,6 +65,23 @@ describe("endpoint serialization", () => {
     expect(JSON.parse(init.body as string)).toEqual({ name: "Main Wallet" });
   });
 
+  it("loads existing wallet groups without creating a new one", async () => {
+    const groups = [{
+      _id: "group",
+      name: "Main Wallet",
+      walletIndex: 0,
+      selected: true,
+      isHidden: false,
+      walletIds: [],
+    }];
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(groups));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getWalletGroups()).resolves.toEqual(groups);
+    expect(fetchMock.mock.calls[0]![0]).toBe("https://api.example.test/wallets/groups");
+    expect((fetchMock.mock.calls[0]![1] as RequestInit).method).toBeUndefined();
+  });
+
   it("gets existing wallets by the chain MongoDB id", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse([]));
     vi.stubGlobal("fetch", fetchMock);
@@ -83,6 +110,26 @@ describe("endpoint serialization", () => {
       validAfter: 1_790_000_000,
       validUntil: 1_790_000_300,
     });
+  });
+
+  it("parses the same canonical Solana payload from refresh and create-space responses", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(canonicalSolanaPayload)));
+
+    await expect(getSolanaPayload(canonicalSolanaPayload.spaceId)).resolves.toEqual(
+      canonicalSolanaPayload,
+    );
+    expect(extractSolanaPayload({
+      spaceId: canonicalSolanaPayload.spaceId,
+      name: "Family",
+      purpose: "FAMILY",
+      role: "OWNER",
+      memberCount: canonicalSolanaPayload.members.length,
+      initialize: {
+        spaceId: canonicalSolanaPayload.spaceId,
+        ready: [canonicalSolanaPayload],
+        skipped: [],
+      },
+    })).toEqual(canonicalSolanaPayload);
   });
 
   it("attaches the failed Create Space request body to a 400 error", async () => {

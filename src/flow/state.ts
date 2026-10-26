@@ -8,7 +8,7 @@ import type {
   WalletDto,
   WalletGroupDto,
 } from "../api/types";
-import type { ConnectedWallet } from "../solana/phantom";
+import type { ConnectedSigner } from "../solana/signers/types";
 
 export type FlowStatus =
   | "configuration-required"
@@ -28,7 +28,7 @@ export type FlowStatus =
 
 export type FlowState = {
   status: FlowStatus;
-  connectedWallet?: ConnectedWallet;
+  connectedWallet?: ConnectedSigner;
   solanaChain?: ChainDto;
   walletGroups: WalletGroupDto[];
   walletGroup?: WalletGroupDto;
@@ -50,7 +50,7 @@ export const initialFlowState: FlowState = {
 
 export type FlowAction =
   | { type: "CONFIGURED" }
-  | { type: "WALLET_CHANGED"; wallet?: ConnectedWallet }
+  | { type: "WALLET_CHANGED"; wallet?: ConnectedSigner }
   | { type: "CHAIN_LOADED"; chain: ChainDto }
   | { type: "GROUPS_LOADED"; groups: WalletGroupDto[]; selected: WalletGroupDto }
   | { type: "GROUP_SELECTED"; group: WalletGroupDto }
