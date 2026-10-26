@@ -5,6 +5,8 @@ import { PayloadPanel } from "./components/PayloadPanel";
 import { SpacePanel } from "./components/SpacePanel";
 import { WalletPanel } from "./components/WalletPanel";
 import { useSolanaSpaceFlow } from "./flow/useSolanaSpaceFlow";
+import { MemberManagementPanel } from "./members/MemberManagementPanel";
+import { useSolanaMemberFlow } from "./members/useSolanaMemberFlow";
 
 export default function App() {
   const flow = useSolanaSpaceFlow();
@@ -15,6 +17,14 @@ export default function App() {
   const selectedWalletOption = flow.walletOptions.find(
     (wallet) => wallet.id === flow.selectedWalletId,
   );
+  const memberFlow = useSolanaMemberFlow({
+    jwt: flow.jwt,
+    spaceId: state.spaceId ?? "",
+    solanaChainObjectId: state.solanaChain?._id,
+    connectedSigner: state.connectedWallet,
+    storedAddress: state.storedWallet?.address,
+    onSpaceIdChange: flow.setSpaceId,
+  });
 
   return (
     <main>
@@ -166,6 +176,10 @@ export default function App() {
         onStartPolling={flow.startPolling}
         onStopPolling={flow.stopPolling}
         onFreshPayload={() => void flow.loadFreshPayload()}
+      />
+      <MemberManagementPanel
+        flow={memberFlow}
+        spaceId={state.spaceId ?? ""}
       />
       <DebugLog events={state.events} onClear={flow.clearLog} />
     </main>

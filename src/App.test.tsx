@@ -13,6 +13,9 @@ describe("signing provider selection", () => {
     expect(html).toContain("Use test signer");
     expect(html).toContain("Solana signing wallet");
     expect(html).toContain("Install or unlock Solflare in this browser profile, then reload");
+    expect(html).toContain("Member management");
+    expect(html).toContain("Requests to approve");
+    expect(html).toContain("Actions waiting for my signature");
   });
 
   it("shows a compatible Solflare wallet in the selector", () => {
