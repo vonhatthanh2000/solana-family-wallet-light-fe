@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DiagnosticError } from "../../api/types";
+import { pollIntervalMs } from "../../flow/poll-interval";
 import { normalizeError } from "../../flow/state";
 import { signRawSolanaDigest } from "../../solana/signing";
 import type { ConnectedSigner } from "../../solana/signers/types";
@@ -9,6 +10,7 @@ import type {
   GuardianActionDto, MoneyQuoteDto, SpaceCategoryDto, SpacePermission, SpendDto,
   VaultTokenOptionDto,
 } from "./contracts";
+import { shouldLoadGuardianActions } from "./action-availability";
 import { spaceActionApi, type CreateVaultInput, type SpendInput } from "./space-action-api";
 
 type Inputs = {
@@ -59,7 +61,7 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
       spaceActionApi.listCategories(spaceId),
       spaceActionApi.listVaultTokens(spaceId),
       Promise.all(spendTasks),
-      role?.key === "OWNER" ? spaceActionApi.listGuardianActions(spaceId) : Promise.resolve([]),
+      shouldLoadGuardianActions(role?.key, chains) ? spaceActionApi.listGuardianActions(spaceId) : Promise.resolve([]),
     ]);
     setCategories(categoryResult); setVaultTokens(tokenResult); setSpends(spendResults.flat()); setGuardianActions(guardianResult);
   }, [chains, role?.key, spaceId]);
@@ -73,15 +75,18 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
     if (spaceId && role) void refresh();
   }, [refresh, role?.key, spaceId]);
 
-  const shouldPoll = spends.some((spend) => ["open", "queued", "signing", "submitted"].includes(spend.status)) ||
+  // A spend another member proposes arrives only from the backend, so an idle Space keeps a slower
+  // heartbeat instead of waiting for a manual refresh.
+  const activeWork = spends.some((spend) => ["open", "queued", "signing", "submitted"].includes(spend.status)) ||
     guardianActions.some((action) => ["signing", "submitted"].includes(action.status));
+  const interval = pollIntervalMs(activeWork);
   useEffect(() => {
-    if (!shouldPoll) return;
+    if (!spaceId || !role) return;
     const timer = window.setInterval(() => {
       if (!busyRef.current) void loadSupport().catch((failure) => setError(normalizeError(failure, "poll")));
-    }, 4_000);
+    }, interval);
     return () => window.clearInterval(timer);
-  }, [loadSupport, shouldPoll]);
+  }, [interval, loadSupport, role, spaceId]);
 
   const changed = useCallback(async (message: string) => {
     setNotice(message);

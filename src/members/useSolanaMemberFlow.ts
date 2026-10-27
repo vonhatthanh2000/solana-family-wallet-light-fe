@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, clearApiFailuresForPath } from "../api/client";
 import type { DiagnosticError } from "../api/types";
+import { pollIntervalMs } from "../flow/poll-interval";
 import { normalizeError } from "../flow/state";
 import type { ConnectedSigner } from "../solana/signers/types";
 import type {
@@ -294,16 +295,18 @@ export function useSolanaMemberFlow({
     return stopPolling;
   }, [jwt, refresh, spaceId, stopPolling]);
 
-  const shouldPoll = hasActiveMemberWork(space, requests, sends);
+  // An empty approval queue must still discover a request another member proposes, so polling never
+  // stops entirely; it only slows down once nothing in this Space is mid-flight.
+  const interval = pollIntervalMs(hasActiveMemberWork(space, requests, sends));
 
   useEffect(() => {
     stopPolling();
-    if (!shouldPoll || !spaceId || !jwt) return;
+    if (!spaceId || !jwt) return;
     pollingTimerRef.current = window.setInterval(() => {
       if (activeSpaceIdRef.current === spaceId) void refresh();
-    }, 4_000);
+    }, interval);
     return stopPolling;
-  }, [jwt, refresh, shouldPoll, spaceId, stopPolling]);
+  }, [interval, jwt, refresh, spaceId, stopPolling]);
 
   const run = useCallback(async (name: string, action: () => Promise<void>) => {
     if (busyAction) return;

@@ -366,3 +366,48 @@ pre {
   dd { margin-bottom: 10px; }
   section { padding: 18px; }
 }
+
+.activity-panel h4 { margin: 16px 0 0; color: #dcd6ff; }
+.activity-row { gap: 10px; }
+.activity-headline { display: flex; align-items: flex-start; gap: 10px; }
+.activity-headline > div { display: grid; gap: 3px; }
+.activity-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #3b4660;
+  border-radius: 999px;
+  color: #bdc8db;
+  font-weight: 750;
+}
+.activity-amount { flex: none; color: #f5f1ff; font-size: 1rem; white-space: nowrap; }
+.activity-amount.muted { color: #8d99ae; }
+
+.signature-prompt {
+  position: sticky;
+  top: 10px;
+  z-index: 20;
+  display: grid;
+  gap: 10px;
+  border: 1px solid #80652e;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(255, 211, 120, 0.14), rgba(13, 19, 30, 0.96));
+  padding: 16px;
+}
+.signature-prompt.collapsed { padding: 8px; background: rgba(13, 19, 30, 0.96); }
+.signature-prompt-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.signature-prompt-heading strong { display: block; color: #ffd378; font-size: 1.05rem; }
+.signature-prompt p { margin: 0; }
+.signature-prompt-list { display: grid; gap: 10px; }
+.signature-prompt-list article {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #3b4660;
+  border-radius: 9px;
+  background: #101724;
+  padding: 12px;
+}
+.signature-prompt-list article strong { color: #f5f1ff; }
+.signature-prompt-list button { margin: 0; justify-self: start; }

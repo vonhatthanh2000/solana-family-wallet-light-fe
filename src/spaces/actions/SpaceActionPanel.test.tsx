@@ -70,4 +70,29 @@ describe("SpaceActionPanel", () => {
     expect(html).toContain("Current approval rule");
     expect(html).toContain("Propose rule change");
   });
+
+  it("does not offer guardian actions before the Space has an active Solana chain", () => {
+    const role: FamilyRoleDto = {
+      key: "OWNER", permissions: ["VIEW"], countsInQuorum: true,
+      onChainSigner: true, singleHolder: true, labels: { en: "Owner" },
+    };
+    const html = renderToStaticMarkup(<SpaceActionPanel
+      dashboard={{
+        ...dashboard,
+        space: {
+          ...dashboard.space,
+          role: "OWNER",
+          chains: [{ ...dashboard.space.chains[0]!, address: null, isDeployed: false }],
+        },
+      }}
+      role={role}
+      actorUserId="owner"
+      fallbackNetwork="devnet"
+      onChanged={vi.fn(async () => undefined)}
+    />);
+
+    expect(html).toContain("Solana deployment completes");
+    expect(html).not.toContain("Build, sign, and submit");
+    expect(html).not.toContain("Relay due removal");
+  });
 });

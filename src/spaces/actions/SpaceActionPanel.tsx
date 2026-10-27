@@ -1,12 +1,15 @@
 import { useMemo, useState, type FormEvent } from "react";
 import bs58 from "bs58";
 import { CopyButton } from "../../components/CopyButton";
-import type { FamilyRoleDto } from "../../members/contracts";
+import type { FamilyRoleDto, MemberSendDto } from "../../members/contracts";
 import type { ConnectedSigner } from "../../solana/signers/types";
 import type { SpaceDashboard } from "../contracts";
 import { DepositPanel } from "../DepositPanel";
 import { baseUnitsToDecimal, decimalToBaseUnits } from "../deposits";
+import { hasActiveSolanaChain } from "./action-availability";
 import type { SpacePermission, SpendDto } from "./contracts";
+import { SignaturePrompt } from "../signing/SignaturePrompt";
+import { pendingSignatures, type SignatureItem } from "../signing/signature-queue";
 import { useSpaceActions } from "./useSpaceActions";
 
 type Props = {
@@ -16,6 +19,9 @@ type Props = {
   signer?: ConnectedSigner;
   fallbackNetwork: string;
   onChanged(): Promise<void>;
+  // Member sends are owned by the member flow, but their signatures belong in the one signing window.
+  memberSends?: readonly MemberSendDto[];
+  onSignMemberSend?(send: MemberSendDto): void;
 };
 
 const permissionLabels: Record<SpacePermission, string> = {
@@ -24,7 +30,7 @@ const permissionLabels: Record<SpacePermission, string> = {
   TRANSFER_OWNERSHIP: "Transfer ownership",
 };
 
-export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbackNetwork, onChanged }: Props) {
+export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbackNetwork, onChanged, memberSends = [], onSignMemberSend }: Props) {
   const actions = useSpaceActions({
     spaceId: dashboard.space.spaceId, chains: dashboard.space.chains, vaults: dashboard.vaults,
     role, actorUserId, signer, onChanged,
@@ -61,6 +67,35 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
   const spendDecimals = spendToken === "native" ? 9 : selectedSpendToken?.decimals;
   const spendSymbol = spendToken === "native" ? "SOL" : selectedSpendToken?.symbol ?? "Token";
   const actorMember = dashboard.members.members.find((member) => member.userId === actorUserId);
+  const activeSolana = hasActiveSolanaChain(dashboard.space.chains);
+
+  const signatureItems = pendingSignatures({
+    spends: actions.spends,
+    guardianActions: actions.guardianActions,
+    memberSends,
+    actorUserId,
+    canVote: actions.can("VOTE"),
+    onChainSigner: role?.onChainSigner === true,
+    signerAddress: signer?.address,
+  });
+
+  const signItem = (item: SignatureItem) => {
+    const id = item.id.slice(item.id.indexOf(":") + 1);
+    if (item.kind === "spend-approval") {
+      const spend = actions.spends.find((row) => row.spendId === id);
+      if (spend) void actions.approveSpend(spend);
+      return;
+    }
+    if (item.kind === "spend-execution") {
+      const spend = actions.spends.find((row) => row.spendId === id);
+      if (spend) void actions.executeSpend(spend);
+      return;
+    }
+    if (item.kind === "member-send") {
+      const send = memberSends.find((row) => row.memberSendId === id);
+      if (send) onSignMemberSend?.(send);
+    }
+  };
 
   const submit = (operation: () => unknown) => (event: FormEvent) => {
     event.preventDefault();
@@ -117,6 +152,13 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
         <div><p className="eyebrow">Role-aware workspace</p><h2 id="space-actions-title">Space actions</h2><p>The backend remains authoritative if membership or on-chain state changes.</p></div>
         <button className="secondary" onClick={() => void actions.refresh()} disabled={busy}>{actions.busyAction === "refresh-actions" ? "Refreshing…" : "Refresh actions"}</button>
       </div>
+
+      <SignaturePrompt
+        items={signatureItems}
+        busy={busy}
+        walletLabel={signer ? `${signer.address.slice(0, 4)}…${signer.address.slice(-4)}` : undefined}
+        onSign={signItem}
+      />
 
       <div className="capability-strip">
         <strong>{role?.labels.en ?? role?.key ?? "Loading role"}</strong>
@@ -213,7 +255,11 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
         <div className="request-list">{actions.spends.map((spend) => <SpendActionCard key={spend.spendId} spend={spend} actions={actions} busy={busy} />)}</div>
       </div>
 
-      {actions.roleKey === "OWNER" && (
+      {actions.roleKey === "OWNER" && !activeSolana && (
+        <div className="result warning">Solana guardian controls will be available after this Space's Solana deployment completes.</div>
+      )}
+
+      {actions.roleKey === "OWNER" && activeSolana && (
         <div className="action-group guardian-panel">
           <h3>Solana guardian security</h3><p>Owner-only. Signed actions are not complete until their persisted status becomes executed.</p>
           <form className="inline-form" onSubmit={submit(() => void actions.guardianAction(guardianOperation, guardianOperation === "rotate_guardian" ? targetGuardian : undefined))}>

@@ -16,10 +16,6 @@ function copy(value: string) {
   void navigator.clipboard?.writeText(value);
 }
 
-function permissionLabel(permission: string): string {
-  return permission.replaceAll("_", " ").toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
-}
-
 export function MemberManagementPanel({ flow, spaceId }: Props) {
   const me = flow.members.find((member) => member.userId === flow.actorUserId);
   const settledRole = me?.role ?? flow.space?.role;
@@ -46,52 +42,6 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
         <div><span>Settled role</span><strong>{settledRole ?? "Not loaded"}</strong></div>
         <div><span>Space</span><strong className="mono">{spaceId ? shortId(spaceId) : "Not selected"}</strong></div>
       </div>
-
-      {flow.space && (
-        <div className="space-information">
-          <div className="space-summary">
-            <div>
-              <span className="eyebrow">Accepted member workspace</span>
-              <h3>{flow.space.name}</h3>
-              <p>{flow.space.purpose} Space · {flow.space.memberCount} active members</p>
-            </div>
-            <span className="status status-done">{flow.space.membershipStatus}</span>
-          </div>
-          <dl className="compact-details">
-            <div><dt>Space ID</dt><dd className="mono wrap"><span className="copyable">{flow.space.spaceId}<CopyButton value={flow.space.spaceId} label="Space ID" /></span></dd></div>
-            <div><dt>Your role</dt><dd>{flow.space.role}</dd></div>
-            <div><dt>Member change</dt><dd>{flow.space.memberChangeInProgress ? "In progress" : "None"}</dd></div>
-          </dl>
-          <div className="permission-block">
-            <strong>Permissions in this Space</strong>
-            {flow.role ? (
-              <>
-                <div className="permission-list">
-                  {flow.role.permissions.map((permission) => (
-                    <span className="permission-chip" key={permission}>{permissionLabel(permission)}</span>
-                  ))}
-                </div>
-                <small className="muted">
-                  {flow.role.countsInQuorum ? "Can vote" : "Does not vote"}
-                  {" · "}
-                  {flow.role.onChainSigner ? "On-chain signer" : "No on-chain signing role"}
-                </small>
-              </>
-            ) : (
-              <p className="muted">The backend did not return a definition for role {flow.space.role}.</p>
-            )}
-          </div>
-          <div className="space-chains">
-            {flow.space.chains.map((chain) => (
-              <div key={chain.chainObjectId}>
-                <strong>{chain.chainType} {chain.chainId}</strong>
-                <span>{chain.isDeployed ? "Deployed" : chain.status ?? "Not deployed"}</span>
-                <span className="copyable"><code>{chain.address ?? "No deposit address"}</code><CopyButton value={chain.address} label="deposit address" /></span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {flow.error && (
         <div className="inline-error" role="alert">

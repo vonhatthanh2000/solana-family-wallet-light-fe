@@ -9,8 +9,10 @@ import { SpacePanel } from "./components/SpacePanel";
 import { WalletPanel } from "./components/WalletPanel";
 import { useSolanaSpaceFlow } from "./flow/useSolanaSpaceFlow";
 import { MemberManagementPanel } from "./members/MemberManagementPanel";
+import { MemberWorkspaceCard } from "./members/MemberWorkspaceCard";
 import { useSolanaMemberFlow } from "./members/useSolanaMemberFlow";
 import { SpaceActionPanel } from "./spaces/actions/SpaceActionPanel";
+import { SpaceActivitySection } from "./spaces/activity/SpaceActivitySection";
 import { SpaceBrowserPanel } from "./spaces/SpaceBrowserPanel";
 import { SpaceDetailPanel } from "./spaces/SpaceDetailPanel";
 import { useSpaceDashboard } from "./spaces/useSpaceDashboard";
@@ -202,7 +204,12 @@ export default function App() {
         onFreshPayload={() => void flow.loadFreshPayload()}
       />
       <SpaceBrowserPanel configured={configured} flow={spaceDashboard} />
+      <MemberWorkspaceCard flow={memberFlow} />
       <SpaceDetailPanel flow={spaceDashboard} />
+      <MemberManagementPanel
+        flow={memberFlow}
+        spaceId={state.spaceId ?? ""}
+      />
       {spaceDashboard.selected && (
         <SpaceActionPanel
           dashboard={spaceDashboard.selected}
@@ -211,12 +218,13 @@ export default function App() {
           signer={state.connectedWallet}
           fallbackNetwork={flow.expectedNetwork}
           onChanged={refreshSpaceWorkspace}
+          memberSends={memberFlow.sends}
+          onSignMemberSend={(send) => void memberFlow.signAndSubmit(send)}
         />
       )}
-      <MemberManagementPanel
-        flow={memberFlow}
-        spaceId={state.spaceId ?? ""}
-      />
+      {spaceDashboard.selected && (
+        <SpaceActivitySection dashboard={spaceDashboard.selected} enabled={configured} />
+      )}
       <DebugLog events={state.events} onClear={flow.clearLog} />
     </main>
   );
