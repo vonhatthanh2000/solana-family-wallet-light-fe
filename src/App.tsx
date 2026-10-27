@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { ConfigurationPanel } from "./components/ConfigurationPanel";
+import { BackendErrorBanner } from "./components/BackendErrorBanner";
 import { CopyButton } from "./components/CopyButton";
 import { DebugLog } from "./components/DebugLog";
 import { DeploymentPanel } from "./components/DeploymentPanel";
@@ -23,6 +24,13 @@ export default function App() {
   const selectedWalletOption = flow.walletOptions.find(
     (wallet) => wallet.id === flow.selectedWalletId,
   );
+  const configured = Boolean(flow.apiBaseUrl.trim() && flow.jwt.trim());
+  const spaceDashboard = useSpaceDashboard({
+    enabled: configured,
+    configurationKey: `${flow.apiBaseUrl}\u0000${flow.jwt}`,
+    selectedSpaceId: state.spaceId ?? "",
+    onSelectSpace: flow.setSpaceId,
+  });
   const memberFlow = useSolanaMemberFlow({
     jwt: flow.jwt,
     spaceId: state.spaceId ?? "",
@@ -30,13 +38,7 @@ export default function App() {
     connectedSigner: state.connectedWallet,
     storedAddress: state.storedWallet?.address,
     onSpaceIdChange: flow.setSpaceId,
-  });
-  const configured = Boolean(flow.apiBaseUrl.trim() && flow.jwt.trim());
-  const spaceDashboard = useSpaceDashboard({
-    enabled: configured,
-    configurationKey: `${flow.apiBaseUrl}\u0000${flow.jwt}`,
-    selectedSpaceId: state.spaceId ?? "",
-    onSelectSpace: flow.setSpaceId,
+    onSpaceLeft: spaceDashboard.removeSpace,
   });
   const refreshSpaceWorkspace = useCallback(async () => {
     await Promise.all([
@@ -109,6 +111,8 @@ export default function App() {
           <span className={`status status-${state.status}`}>{state.status}</span>
         </div>
       </header>
+
+      <BackendErrorBanner />
 
       {import.meta.env.DEV && state.connectedWallet?.provider === "Test keypair" && (
         <aside className="error" role="alert">

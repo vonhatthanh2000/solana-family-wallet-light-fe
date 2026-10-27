@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DiagnosticError } from "../api/types";
 import { normalizeError } from "../flow/state";
+import { clearApiFailuresForPath } from "../api/client";
 import type { SpaceDashboard, SpaceSummaryDto } from "./contracts";
 import { loadSpaceDashboard } from "./load-space-dashboard";
 import { httpSpaceDashboardApi, type SpaceDashboardApi } from "./space-api";
@@ -15,9 +16,14 @@ export type SpaceDashboardFlow = {
   detailError?: DiagnosticError;
   lastRefreshed?: Date;
   selectSpace(spaceId: string): void;
+  removeSpace(spaceId: string): void;
   refreshList(): Promise<void>;
   refreshSelected(): Promise<void>;
 };
+
+export function lostSpaceMembership(error: DiagnosticError): boolean {
+  return error.status === 403 && error.code === "NOT_A_MEMBER";
+}
 
 type Inputs = {
   enabled: boolean;
@@ -44,6 +50,18 @@ export function useSpaceDashboard({
   const [lastRefreshed, setLastRefreshed] = useState<Date>();
   const listSequence = useRef(0);
   const detailSequence = useRef(0);
+
+  const removeSpace = useCallback((spaceId: string) => {
+    ++listSequence.current;
+    ++detailSequence.current;
+    setSpaces((current) => current.filter((space) => space.spaceId !== spaceId));
+    if (selectedSpaceId === spaceId) {
+      setSelected(undefined);
+      setDetailError(undefined);
+      setLoadingDetail(false);
+      setLastRefreshed(undefined);
+    }
+  }, [selectedSpaceId]);
 
   const refreshList = useCallback(async () => {
     if (!enabled) return;
@@ -81,11 +99,24 @@ export function useSpaceDashboard({
         setLastRefreshed(new Date());
       }
     } catch (error) {
-      if (sequence === detailSequence.current) setDetailError(normalizeError(error, "backend"));
+      if (sequence === detailSequence.current) {
+        const diagnostic = normalizeError(error, "backend");
+        if (lostSpaceMembership(diagnostic)) {
+          ++listSequence.current;
+          setSpaces((current) => current.filter((space) => space.spaceId !== selectedSpaceId));
+          setSelected(undefined);
+          setDetailError(undefined);
+          setLastRefreshed(undefined);
+          clearApiFailuresForPath(`/family-wallet/spaces/${encodeURIComponent(selectedSpaceId)}`);
+          onSelectSpace("");
+        } else {
+          setDetailError(diagnostic);
+        }
+      }
     } finally {
       if (sequence === detailSequence.current) setLoadingDetail(false);
     }
-  }, [api, enabled, selectedSpaceId, spaces]);
+  }, [api, enabled, onSelectSpace, selectedSpaceId, spaces]);
 
   useEffect(() => {
     ++listSequence.current;
@@ -119,6 +150,7 @@ export function useSpaceDashboard({
     detailError,
     lastRefreshed,
     selectSpace: onSelectSpace,
+    removeSpace,
     refreshList,
     refreshSelected,
   };

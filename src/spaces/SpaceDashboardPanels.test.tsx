@@ -11,6 +11,7 @@ function flow(overrides: Partial<SpaceDashboardFlow> = {}): SpaceDashboardFlow {
     loadingList: false,
     loadingDetail: false,
     selectSpace: vi.fn(),
+    removeSpace: vi.fn(),
     refreshList: vi.fn(),
     refreshSelected: vi.fn(),
     ...overrides,

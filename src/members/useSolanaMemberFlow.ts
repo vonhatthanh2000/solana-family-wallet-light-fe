@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError } from "../api/client";
+import { ApiError, clearApiFailuresForPath } from "../api/client";
 import type { DiagnosticError } from "../api/types";
 import { normalizeError } from "../flow/state";
 import type { ConnectedSigner } from "../solana/signers/types";
@@ -21,6 +21,7 @@ import { recoverMemberSend, shouldRefreshAfterMemberError } from "./member-recov
 import { getMemberSignabilityError, signMemberDigest } from "./member-signing";
 import { canApproveRequest, canDeclineRequest, decodeJwtSubject } from "./member-view";
 import { loadSpaceMembers } from "./member-workspace";
+import { hasActiveMemberWork, memberRefreshCapabilities } from "./member-permissions";
 
 export type SolanaMemberFlow = {
   actorUserId?: string;
@@ -53,6 +54,7 @@ export type SolanaMemberFlow = {
   requestRemoval(userId: string): Promise<void>;
   requestHandover(userId: string): Promise<void>;
   leave(): Promise<void>;
+  can(permission: string): boolean;
   canApprove(request: MemberRequestDto): boolean;
   canDecline(request: MemberRequestDto): boolean;
   signabilityError(send: MemberSendDto): string | undefined;
@@ -66,6 +68,7 @@ type Inputs = {
   connectedSigner?: ConnectedSigner;
   storedAddress?: string;
   onSpaceIdChange(spaceId: string): void;
+  onSpaceLeft?(spaceId: string): void;
   api?: MemberApi;
 };
 
@@ -83,6 +86,7 @@ export function useSolanaMemberFlow({
   connectedSigner,
   storedAddress,
   onSpaceIdChange,
+  onSpaceLeft,
   api = httpMemberApi,
 }: Inputs): SolanaMemberFlow {
   const actorUserId = useMemo(() => decodeJwtSubject(jwt), [jwt]);
@@ -102,6 +106,14 @@ export function useSolanaMemberFlow({
   const [error, setError] = useState<DiagnosticError>();
   const requestsRef = useRef<MemberRequestDto[]>([]);
   const membersRef = useRef<SpaceMemberDto[]>([]);
+  const activeSpaceIdRef = useRef(spaceId);
+  const pollingTimerRef = useRef<number | undefined>(undefined);
+  activeSpaceIdRef.current = spaceId;
+
+  const stopPolling = useCallback(() => {
+    if (pollingTimerRef.current !== undefined) window.clearInterval(pollingTimerRef.current);
+    pollingTimerRef.current = undefined;
+  }, []);
 
   useEffect(() => {
     requestsRef.current = requests;
@@ -116,12 +128,45 @@ export function useSolanaMemberFlow({
   }, []);
 
   const refresh = useCallback(async () => {
-    if (!spaceId || !jwt) return;
+    if (!spaceId || !jwt || activeSpaceIdRef.current !== spaceId) return;
+    const requestedSpaceId = spaceId;
     setRefreshing(true);
     const spaceTask = api.getSpace(spaceId);
     const roleTask = api.listRoles();
-    const inviteTask = api.listInvites(spaceId);
-    const requestTask = loadApprovalInbox(api, spaceId).then(async (inbox) => {
+    const [spaceResult, roleResult] = await Promise.allSettled([spaceTask, roleTask]);
+    if (activeSpaceIdRef.current !== requestedSpaceId) return;
+    if (spaceResult.status === "rejected") {
+      const diagnostic = normalizeError(spaceResult.reason, "backend");
+      if (diagnostic.status === 403 && diagnostic.code === "NOT_A_MEMBER") {
+        stopPolling();
+        activeSpaceIdRef.current = "";
+        setSpace(undefined);
+        setRoles([]);
+        setRequests([]);
+        setSends([]);
+        setMembers([]);
+        setCreatedInvite(undefined);
+        setRefreshing(false);
+        onSpaceLeft?.(requestedSpaceId);
+        clearApiFailuresForPath(`/family-wallet/spaces/${encodeURIComponent(requestedSpaceId)}`);
+        onSpaceIdChange("");
+        return;
+      }
+      fail(spaceResult.reason);
+      setRefreshing(false);
+      return;
+    }
+    const loadedSpace = spaceResult.status === "fulfilled" ? spaceResult.value : undefined;
+    const loadedRoles = roleResult.status === "fulfilled" ? roleResult.value : [];
+    const activeRole = loadedSpace
+      ? loadedRoles.find((role) => role.key.toUpperCase() === loadedSpace.role.toUpperCase())
+      : undefined;
+    const capabilities = memberRefreshCapabilities(activeRole);
+    if (loadedSpace) setSpace(loadedSpace);
+    if (roleResult.status === "fulfilled") setRoles(loadedRoles);
+
+    const inviteTask = capabilities.canListInvites ? api.listInvites(spaceId) : Promise.resolve([]);
+    const requestTask = (capabilities.canViewRequests ? loadApprovalInbox(api, spaceId) : Promise.resolve([])).then(async (inbox) => {
       const visibleIds = new Set(inbox.map((request) => request.id));
       const landing = requestsRef.current.filter(
         (request) => request.status === "EXECUTING" && !visibleIds.has(request.id),
@@ -139,28 +184,24 @@ export function useSolanaMemberFlow({
         })),
       ];
     });
-    const sendTask = api.listMySends(spaceId);
+    const sendTask = capabilities.canListSends ? api.listMySends(spaceId) : Promise.resolve([]);
     const memberTask = loadSpaceMembers({
       api,
       spaceId,
       solanaChainObjectId,
       discoverSolanaChainObjectId: async () => {
-        const loadedSpace = await spaceTask;
-        return loadedSpace.chains.find((chain) => chain.chainType === "SOL")?.chainObjectId ?? "";
+        return loadedSpace?.chains.find((chain) => chain.chainType === "SOL")?.chainObjectId ?? "";
       },
     });
-    const [spaceResult, roleResult, inviteResult, requestResult, sendResult, memberResult] = await Promise.allSettled([
-      spaceTask,
-      roleTask,
+    const [inviteResult, requestResult, sendResult, memberResult] = await Promise.allSettled([
       inviteTask,
       requestTask,
       sendTask,
       memberTask,
     ]);
-    if (spaceResult.status === "fulfilled") setSpace(spaceResult.value);
-    if (roleResult.status === "fulfilled") setRoles(roleResult.value);
+    if (activeSpaceIdRef.current !== requestedSpaceId) return;
     if (inviteResult.status === "fulfilled") {
-      const existing = reusableMemberInvite(inviteResult.value);
+      const existing = capabilities.canListInvites ? reusableMemberInvite(inviteResult.value) : undefined;
       setCreatedInvite(existing);
       setInviteReused(Boolean(existing));
       if (existing) setInviteCodeState(existing.code);
@@ -198,22 +239,40 @@ export function useSolanaMemberFlow({
       membersRef.current = memberResult.value;
       setMembers(memberResult.value);
     }
-    const failures = [spaceResult, roleResult, inviteResult, requestResult, sendResult, memberResult].filter(
+    const failures = [roleResult, inviteResult, requestResult, sendResult, memberResult].filter(
       (result): result is PromiseRejectedResult => result.status === "rejected",
     );
-    const criticalFailure = spaceResult.status === "rejected"
-      ? spaceResult.reason
-      : memberResult.status === "rejected"
-        ? memberResult.reason
-        : failures.length === 6
-          ? failures[0]!.reason
-          : undefined;
+    const membershipLost = failures.some((result) => {
+      const diagnostic = normalizeError(result.reason, "backend");
+      return diagnostic.status === 403 && diagnostic.code === "NOT_A_MEMBER";
+    });
+    if (membershipLost) {
+      stopPolling();
+      activeSpaceIdRef.current = "";
+      setSpace(undefined);
+      setRoles([]);
+      setRequests([]);
+      setSends([]);
+      setMembers([]);
+      setCreatedInvite(undefined);
+      setRefreshing(false);
+      onSpaceLeft?.(requestedSpaceId);
+      clearApiFailuresForPath(`/family-wallet/spaces/${encodeURIComponent(requestedSpaceId)}`);
+      onSpaceIdChange("");
+      return;
+    }
+    const criticalFailure = memberResult.status === "rejected"
+      ? memberResult.reason
+      : failures.length === 5
+        ? failures[0]!.reason
+        : undefined;
     if (criticalFailure) fail(criticalFailure);
     else setError(undefined);
     setRefreshing(false);
-  }, [api, fail, jwt, solanaChainObjectId, spaceId]);
+  }, [api, fail, jwt, onSpaceIdChange, onSpaceLeft, solanaChainObjectId, spaceId, stopPolling]);
 
   useEffect(() => {
+    stopPolling();
     if (!spaceId || !jwt) {
       setRequests([]);
       setSends([]);
@@ -222,6 +281,7 @@ export function useSolanaMemberFlow({
       setRoles([]);
       setCreatedInvite(undefined);
       setInviteReused(false);
+      setRefreshing(false);
       return;
     }
     setSpace(undefined);
@@ -231,9 +291,19 @@ export function useSolanaMemberFlow({
     setInviteReused(false);
     membersRef.current = [];
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 4_000);
-    return () => window.clearInterval(timer);
-  }, [jwt, refresh, spaceId]);
+    return stopPolling;
+  }, [jwt, refresh, spaceId, stopPolling]);
+
+  const shouldPoll = hasActiveMemberWork(space, requests, sends);
+
+  useEffect(() => {
+    stopPolling();
+    if (!shouldPoll || !spaceId || !jwt) return;
+    pollingTimerRef.current = window.setInterval(() => {
+      if (activeSpaceIdRef.current === spaceId) void refresh();
+    }, 4_000);
+    return stopPolling;
+  }, [jwt, refresh, shouldPoll, spaceId, stopPolling]);
 
   const run = useCallback(async (name: string, action: () => Promise<void>) => {
     if (busyAction) return;
@@ -410,9 +480,23 @@ export function useSolanaMemberFlow({
 
   const leave = useCallback(() => run("leave", async () => {
     if (!spaceId) throw new Error("Space ID is required");
-    await api.leave(spaceId);
-    await refresh();
-  }), [api, refresh, run, spaceId]);
+    const departedSpaceId = spaceId;
+    await api.leave(departedSpaceId);
+    stopPolling();
+    activeSpaceIdRef.current = "";
+    setSpace(undefined);
+    setRoles([]);
+    setRequests([]);
+    setSends([]);
+    setMembers([]);
+    setCreatedInvite(undefined);
+    setInvitePreview(undefined);
+    setJoinResult(undefined);
+    setRefreshing(false);
+    onSpaceLeft?.(departedSpaceId);
+    clearApiFailuresForPath(`/family-wallet/spaces/${encodeURIComponent(departedSpaceId)}`);
+    onSpaceIdChange("");
+  }), [api, onSpaceIdChange, onSpaceLeft, run, spaceId, stopPolling]);
 
   return {
     actorUserId,
@@ -449,6 +533,7 @@ export function useSolanaMemberFlow({
     requestRemoval,
     requestHandover,
     leave,
+    can: (permission) => Boolean(space && roles.find((role) => role.key.toUpperCase() === space.role.toUpperCase())?.permissions.includes(permission)),
     canApprove: (request) => canApproveRequest(request, actorUserId),
     canDecline: (request) => canDeclineRequest(request, actorUserId),
     signabilityError: (send) => getMemberSignabilityError({

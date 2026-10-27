@@ -82,6 +82,8 @@ section, .error {
 
 .error { border-color: #7d3544; background: #2a1820; }
 .error p { margin-bottom: 0; }
+.backend-error-banner { position: sticky; top: 10px; z-index: 20; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.42); }
+.backend-error-banner .recovery-hint { color: #ffd378; }
 
 .status {
   flex: none;

@@ -22,7 +22,7 @@ async function copyText(value: string): Promise<void> {
 
 export function CopyButton({ value, label = "value" }: Props) {
   const [copied, setCopied] = useState(false);
-  const resetTimer = useRef<number>();
+  const resetTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => () => window.clearTimeout(resetTimer.current), []);
   if (!value) return null;

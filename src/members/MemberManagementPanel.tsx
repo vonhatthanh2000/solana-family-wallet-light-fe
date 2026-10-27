@@ -24,6 +24,9 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
   const me = flow.members.find((member) => member.userId === flow.actorUserId);
   const settledRole = me?.role ?? flow.space?.role;
   const owner = settledRole === "OWNER";
+  const canInvite = flow.can("INVITE");
+  const canProposeMemberChange = flow.can("PROPOSE_MEMBER_CHANGE");
+  const canTransferOwnership = flow.can("TRANSFER_OWNERSHIP");
   const busy = Boolean(flow.busyAction);
 
   return (
@@ -101,7 +104,7 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
       )}
 
       <div className="member-columns">
-        <div className="member-subpanel">
+        {(!flow.space || canInvite) && <div className="member-subpanel">
           <h3>Invite a member</h3>
           <p>Create a MEMBER invite in the Owner profile, then paste its code in another profile.</p>
           <button onClick={() => void flow.createInvite()} disabled={!spaceId || busy}>
@@ -146,11 +149,11 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
               <span>Status: {flow.joinResult.status}. An eligible member must approve it.</span>
             </div>
           )}
-        </div>
+        </div>}
 
         <div className="member-subpanel approval-inbox">
           <h3>Requests to approve</h3>
-          <p>This inbox refreshes automatically in every member profile.</p>
+          <p>This inbox refreshes automatically only while a request or chain action is active.</p>
           {!spaceId && <p className="muted">Create, import, or preview a Space first.</p>}
           {spaceId && !flow.requests.length && <p className="muted">No visible requests.</p>}
           {flow.requests.map((request) => {
@@ -199,7 +202,7 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
         </div>
       </div>
 
-      <div className="member-subpanel">
+      {(flow.role?.onChainSigner || flow.sends.length > 0) && <div className="member-subpanel">
         <h3>Actions waiting for my signature</h3>
         <p>The assigned profile signs the raw 32-byte digest. The browser does not build a transaction.</p>
         {!flow.sends.length && <p className="muted">No signing actions assigned to this profile.</p>}
@@ -262,7 +265,7 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
             </article>
           );
         })}
-      </div>
+      </div>}
 
       <div className="member-subpanel">
         <div className="section-heading">
@@ -285,7 +288,7 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
                 <span>{member.role} · {member.status}</span>
                 <span className="copyable"><code>{member.wallet?.address ?? "No Solana wallet"}</code><CopyButton value={member.wallet?.address} label={`${memberDisplayName(member)} wallet address`} /></span>
               </div>
-              {member.status === "ACTIVE" && member.userId !== flow.actorUserId && (
+              {canProposeMemberChange && member.status === "ACTIVE" && member.userId !== flow.actorUserId && (
                 <div className="button-row">
                   <button
                     className="danger"
@@ -294,7 +297,7 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
                   >
                     Remove member
                   </button>
-                  {owner && ["ADMIN", "MEMBER"].includes(member.role) && (
+                  {owner && canTransferOwnership && ["ADMIN", "MEMBER"].includes(member.role) && (
                     <button
                       onClick={() => void flow.requestHandover(member.userId)}
                       disabled={busy}

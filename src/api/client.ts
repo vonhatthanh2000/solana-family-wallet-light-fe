@@ -11,8 +11,21 @@ export type ApiRequestDetails = {
   body?: unknown;
 };
 
+export type ApiFailureNotice = {
+  id: number;
+  at: string;
+  status: number;
+  code?: string;
+  message: string;
+  request: ApiRequestDetails;
+  response: unknown;
+};
+
 let runtimeConfiguration: RuntimeConfiguration = { apiBaseUrl: "", jwt: "" };
 let debugListener: ((event: DebugEvent) => void) | undefined;
+const apiFailureListeners = new Set<(failure: ApiFailureNotice | undefined) => void>();
+let latestApiFailure: ApiFailureNotice | undefined;
+let nextFailureId = 1;
 
 export class ApiError extends Error {
   readonly status: number;
@@ -46,6 +59,37 @@ export function setApiDebugListener(
   listener: ((event: DebugEvent) => void) | undefined,
 ): void {
   debugListener = listener;
+}
+
+export function subscribeApiFailures(listener: (failure: ApiFailureNotice | undefined) => void): () => void {
+  apiFailureListeners.add(listener);
+  if (latestApiFailure) listener(latestApiFailure);
+  return () => apiFailureListeners.delete(listener);
+}
+
+export function clearApiFailure(id: number): void {
+  if (latestApiFailure?.id !== id) return;
+  latestApiFailure = undefined;
+  apiFailureListeners.forEach((listener) => listener(undefined));
+}
+
+export function clearApiFailuresForPath(pathPrefix: string): void {
+  if (!latestApiFailure?.request.path.startsWith(pathPrefix)) return;
+  const id = latestApiFailure.id;
+  clearApiFailure(id);
+}
+
+function reportApiFailure(error: ApiError): void {
+  latestApiFailure = {
+    id: nextFailureId++,
+    at: new Date().toISOString(),
+    status: error.status,
+    code: error.code,
+    message: error.message,
+    request: error.request,
+    response: redactDebugValue(error.body),
+  };
+  apiFailureListeners.forEach((listener) => listener(latestApiFailure!));
 }
 
 function emit(event: Omit<DebugEvent, "at">): void {
@@ -139,7 +183,9 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
       status: response.status,
       response: redactDebugValue(body),
     });
-    throw new ApiError(response.status, body, request);
+    const error = new ApiError(response.status, body, request);
+    reportApiFailure(error);
+    throw error;
   }
   return body as T;
 }
