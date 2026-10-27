@@ -6,6 +6,7 @@ import {
   bytesToHex,
   hexToBytes32,
   publicKeyHex,
+  signRawSolanaDigest,
   signSolanaPayload,
 } from "./signing";
 
@@ -69,6 +70,35 @@ describe("publicKeyHex", () => {
   it("converts a public key to lowercase 0x hex", () => {
     const key = Uint8Array.from({ length: 32 }, (_, index) => 255 - index);
     expect(publicKeyHex(key)).toBe(`0x${bytesToHex(key)}`);
+  });
+});
+
+describe("signRawSolanaDigest", () => {
+  it("signs the decoded 32 bytes and locally verifies the signature", async () => {
+    const keyPair = nacl.sign.keyPair();
+    const signDigest32 = vi.fn(async (bytes: Uint8Array) =>
+      nacl.sign.detached(bytes, keyPair.secretKey));
+
+    await expect(signRawSolanaDigest(
+      `0x${bytesToHex(digestBytes)}`,
+      { ...walletFor(keyPair), signDigest32 },
+    )).resolves.toMatch(/^[0-9a-f]{128}$/);
+
+    expect(signDigest32).toHaveBeenCalledWith(digestBytes);
+    expect(signDigest32.mock.calls[0]?.[0]).toHaveLength(32);
+  });
+
+  it("rejects unsupported wallets before asking them to sign", async () => {
+    const keyPair = nacl.sign.keyPair();
+    const signDigest32 = vi.fn(async () => new Uint8Array(64));
+
+    await expect(signRawSolanaDigest(`0x${bytesToHex(digestBytes)}`, {
+      ...walletFor(keyPair),
+      provider: "Read-only wallet",
+      canSignDigest: false,
+      signDigest32,
+    })).rejects.toThrow("does not support raw digest signing");
+    expect(signDigest32).not.toHaveBeenCalled();
   });
 });
 

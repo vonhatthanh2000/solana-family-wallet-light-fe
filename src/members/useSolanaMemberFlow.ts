@@ -19,7 +19,7 @@ import { loadApprovalInbox } from "./member-inbox";
 import { createOrReuseMemberInvite, reusableMemberInvite } from "./member-invite";
 import { recoverMemberSend, shouldRefreshAfterMemberError } from "./member-recovery";
 import { getMemberSignabilityError, signMemberDigest } from "./member-signing";
-import { canApproveRequest, decodeJwtSubject } from "./member-view";
+import { canApproveRequest, canDeclineRequest, decodeJwtSubject } from "./member-view";
 import { loadSpaceMembers } from "./member-workspace";
 
 export type SolanaMemberFlow = {
@@ -41,15 +41,20 @@ export type SolanaMemberFlow = {
   setInviteCode(value: string): void;
   refresh(): Promise<void>;
   createInvite(): Promise<void>;
+  revokeInvite(): Promise<void>;
   previewInvite(): Promise<void>;
   joinInvite(): Promise<void>;
   approve(request: MemberRequestDto): Promise<void>;
+  decline(request: MemberRequestDto): Promise<void>;
+  cancelRequest(request: MemberRequestDto): Promise<void>;
+  applyVaultRequest(request: MemberRequestDto): Promise<void>;
   prepareSend(send: MemberSendDto): Promise<void>;
   signAndSubmit(send: MemberSendDto): Promise<void>;
   requestRemoval(userId: string): Promise<void>;
   requestHandover(userId: string): Promise<void>;
   leave(): Promise<void>;
   canApprove(request: MemberRequestDto): boolean;
+  canDecline(request: MemberRequestDto): boolean;
   signabilityError(send: MemberSendDto): string | undefined;
   clearError(): void;
 };
@@ -252,6 +257,15 @@ export function useSolanaMemberFlow({
     await refresh();
   }), [api, refresh, run, spaceId]);
 
+  const revokeInvite = useCallback(() => run("revoke-invite", async () => {
+    if (!spaceId || !createdInvite) throw new Error("There is no open invite to revoke");
+    await api.revokeInvite(spaceId, createdInvite.id);
+    setCreatedInvite(undefined);
+    setInviteReused(false);
+    setInviteCodeState("");
+    await refresh();
+  }), [api, createdInvite, refresh, run, spaceId]);
+
   const previewInvite = useCallback(() => run("preview-invite", async () => {
     const code = inviteCode.trim();
     if (!code) throw new Error("Paste an invite code first");
@@ -296,6 +310,40 @@ export function useSolanaMemberFlow({
       await refresh();
     },
   ), [actorUserId, api, refresh, run, spaceId]);
+
+  const decline = useCallback((request: MemberRequestDto) => run(
+    `decline:${request.id}`,
+    async () => {
+      if (!spaceId) throw new Error("Space ID is required");
+      if (!canDeclineRequest(request, actorUserId)) {
+        throw new Error("This profile is not currently eligible to decline this request");
+      }
+      const updated = await api.decline(spaceId, request.id);
+      setRequests((current) => replaceById(current, updated, (item) => item.id));
+      await refresh();
+    },
+  ), [actorUserId, api, refresh, run, spaceId]);
+
+  const cancelRequest = useCallback((request: MemberRequestDto) => run(
+    `cancel-request:${request.id}`,
+    async () => {
+      if (!spaceId) throw new Error("Space ID is required");
+      if (!actorUserId || request.proposerUserId !== actorUserId || request.status !== "PENDING") {
+        throw new Error("Only the proposer can withdraw a pending request");
+      }
+      await api.cancelRequest(spaceId, request.id);
+      await refresh();
+    },
+  ), [actorUserId, api, refresh, run, spaceId]);
+
+  const applyVaultRequest = useCallback((request: MemberRequestDto) => run(
+    `apply-request:${request.id}`,
+    async () => {
+      if (!spaceId) throw new Error("Space ID is required");
+      await api.applyVaultRequest(spaceId, request.id);
+      await refresh();
+    },
+  ), [api, refresh, run, spaceId]);
 
   const prepareSend = useCallback((send: MemberSendDto) => run(
     `prepare:${send.memberSendId}`,
@@ -369,7 +417,7 @@ export function useSolanaMemberFlow({
   return {
     actorUserId,
     space,
-    role: space ? roles.find((role) => role.key === space.role) : undefined,
+    role: space ? roles.find((role) => role.key.toUpperCase() === space.role.toUpperCase()) : undefined,
     requests,
     sends,
     members,
@@ -389,15 +437,20 @@ export function useSolanaMemberFlow({
     },
     refresh,
     createInvite,
+    revokeInvite,
     previewInvite,
     joinInvite,
     approve,
+    decline,
+    cancelRequest,
+    applyVaultRequest,
     prepareSend,
     signAndSubmit,
     requestRemoval,
     requestHandover,
     leave,
     canApprove: (request) => canApproveRequest(request, actorUserId),
+    canDecline: (request) => canDeclineRequest(request, actorUserId),
     signabilityError: (send) => getMemberSignabilityError({
       send,
       actorUserId,

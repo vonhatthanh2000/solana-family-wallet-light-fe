@@ -45,7 +45,19 @@ export function canApproveRequest(request: MemberRequestDto, actorUserId?: strin
     actorUserId &&
     request.status === "PENDING" &&
     request.eligibleVoters.includes(actorUserId) &&
-    !request.seals.includes(actorUserId),
+    !request.seals.includes(actorUserId) &&
+    !request.declines.includes(actorUserId),
+  );
+}
+
+export function canDeclineRequest(request: MemberRequestDto, actorUserId?: string): boolean {
+  return Boolean(
+    actorUserId &&
+    request.proposerUserId !== actorUserId &&
+    request.status === "PENDING" &&
+    request.eligibleVoters.includes(actorUserId) &&
+    !request.seals.includes(actorUserId) &&
+    !request.declines.includes(actorUserId),
   );
 }
 

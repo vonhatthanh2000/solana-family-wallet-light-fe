@@ -1,4 +1,5 @@
 import type { SpaceChainDto } from "../api/types";
+import { CopyButton } from "./CopyButton";
 
 type Props = {
   status: string;
@@ -49,7 +50,7 @@ export function DeploymentPanel({
         <dt>isDeployed</dt>
         <dd>{deployment ? String(deployment.isDeployed) : "—"}</dd>
         <dt>Deposit / PDA address</dt>
-        <dd className="mono wrap">{deployment?.address ?? "—"}</dd>
+        <dd className="mono wrap"><span className="copyable">{deployment?.address ?? "—"}<CopyButton value={deployment?.address} label="deposit address" /></span></dd>
         <dt>Deploy error</dt>
         <dd>{deployment?.deployError ?? "—"}</dd>
         <dt>Deposit availability</dt>

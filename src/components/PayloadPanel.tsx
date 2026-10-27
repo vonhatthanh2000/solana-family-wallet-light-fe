@@ -1,6 +1,7 @@
 import type { SolanaOpenPayload } from "../api/types";
 import type { ConnectedSigner } from "../solana/signers/types";
 import { hexToBytes32, publicKeyHex } from "../solana/signing";
+import { CopyButton } from "./CopyButton";
 
 type Props = {
   payload?: SolanaOpenPayload;
@@ -42,13 +43,13 @@ export function PayloadPanel({
         <>
           <dl>
             <dt>Payload creator</dt>
-            <dd className="mono wrap">{payload.creator}</dd>
+            <dd className="mono wrap"><span className="copyable">{payload.creator}<CopyButton value={payload.creator} label="payload creator" /></span></dd>
             <dt>Connected key</dt>
-            <dd className="mono wrap">{connectedHex ?? "—"}</dd>
+            <dd className="mono wrap"><span className="copyable">{connectedHex ?? "—"}<CopyButton value={connectedHex} label="connected public key" /></span></dd>
             <dt>Creator/owner match</dt>
             <dd className={creatorMatches ? "good" : "bad"}>{creatorMatches ? "yes" : "NO"}</dd>
             <dt>Digest</dt>
-            <dd className="mono wrap">{payload.digest}</dd>
+            <dd className="mono wrap"><span className="copyable">{payload.digest}<CopyButton value={payload.digest} label="activation digest" /></span></dd>
             <dt>Decoded length</dt>
             <dd>{digestLength === undefined ? "invalid" : `${digestLength} bytes`}</dd>
             <dt>Signing input</dt>
@@ -69,7 +70,7 @@ export function PayloadPanel({
           {signatureHex && (
             <div className="result success">
               Local Ed25519 verification: PASS
-              <div className="mono wrap signature">{signatureHex}</div>
+              <div className="mono wrap signature copyable">{signatureHex}<CopyButton value={signatureHex} label="signature" /></div>
               <small>{signatureHex.length} hexadecimal characters</small>
             </div>
           )}

@@ -32,7 +32,7 @@ function wallet(
     features: {
       "standard:connect": {
         version: "1.0.0",
-        connect: vi.fn(async () => ({ accounts: [account] })),
+        connect: vi.fn(async () => ({ accounts: accounts.length ? accounts : [account] })),
       },
       "standard:events": {
         version: "1.0.0",
@@ -99,6 +99,36 @@ describe("Wallet Standard signer adapter", () => {
     expect(signer.provider).toBe("Solflare");
     expect(signer.publicKeyBytes()).toEqual(account.publicKey);
     expect(signer.canSignDigest).toBe(true);
+    expect(signer.canSignTransaction).toBe(false);
+  });
+
+  it("uses Wallet Standard sign-and-send for serialized deposit transactions", async () => {
+    const transactionAccount: WalletAccount = {
+      ...account,
+      features: ["solana:signMessage", "solana:signAndSendTransaction"],
+    };
+    const signature = new Uint8Array(64).fill(9);
+    const signAndSendTransaction = vi.fn(async () => [{ signature }]);
+    const solflare = wallet("Solflare", {
+      "solana:signAndSendTransaction": {
+        version: "1.0.0",
+        supportedTransactionVersions: ["legacy"],
+        signAndSendTransaction,
+      },
+    }, [transactionAccount]);
+    unregister.push(getWallets().register(solflare));
+    const [choice] = listCompatibleSolanaWallets();
+    const signer = await connectStandardWallet(choice!.id);
+    const transaction = new Uint8Array([1, 2, 3]);
+
+    expect(signer.canSignTransaction).toBe(true);
+    await expect(signer.signAndSendTransaction!(transaction, "solana:devnet")).resolves.toEqual(expect.any(String));
+    expect(signAndSendTransaction).toHaveBeenCalledWith({
+      account: transactionAccount,
+      transaction,
+      chain: "solana:devnet",
+      options: { preflightCommitment: "confirmed" },
+    });
   });
 
   it("passes exactly 32 bytes to raw signMessage and returns its 64-byte signature", async () => {

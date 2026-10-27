@@ -1,6 +1,7 @@
 import type { ChainDto, WalletDto, WalletGroupDto } from "../api/types";
 import type { ConnectedSigner } from "../solana/signers/types";
 import { publicKeyHex } from "../solana/signing";
+import { CopyButton } from "./CopyButton";
 
 type Props = {
   wallet?: ConnectedSigner;
@@ -40,9 +41,9 @@ export function WalletPanel({
         </div>
         <dl>
           <dt>Base58 address</dt>
-          <dd className="mono">{wallet?.address ?? "Not created"}</dd>
+          <dd className="mono"><span className="copyable">{wallet?.address ?? "Not created"}<CopyButton value={wallet?.address} label="wallet address" /></span></dd>
           <dt>32-byte key hex</dt>
-          <dd className="mono wrap">{connectedHex ?? "—"}</dd>
+          <dd className="mono wrap"><span className="copyable">{connectedHex ?? "—"}<CopyButton value={connectedHex} label="public key" /></span></dd>
           <dt>Signing provider</dt>
           <dd>{wallet?.provider ?? "—"}</dd>
           <dt>Raw digest signing</dt>
@@ -66,7 +67,7 @@ export function WalletPanel({
         </dl>
         {storedWallet && (
           <div className={addressMatches ? "result success" : "result failure"}>
-            Stored address: <span className="mono">{storedWallet.address}</span><br />
+            Stored address: <span className="mono copyable">{storedWallet.address}<CopyButton value={storedWallet.address} label="stored wallet address" /></span><br />
             Match: {addressMatches ? "yes" : "NO — stop here"}
           </div>
         )}

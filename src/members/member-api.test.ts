@@ -50,6 +50,25 @@ describe("member HTTP adapter", () => {
     expect((fetchMock.mock.calls[1]?.[1] as RequestInit).method).toBe("POST");
   });
 
+  it("declines, withdraws, and retries a family request on their distinct routes", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ ...request, status: "REJECTED", declines: ["owner"] }))
+      .mockResolvedValueOnce(response({}))
+      .mockResolvedValueOnce(response({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await httpMemberApi.decline("space", "request/id");
+    await httpMemberApi.cancelRequest("space", "request/id");
+    await httpMemberApi.applyVaultRequest("space", "request/id");
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "https://api.example.test/family-wallet/spaces/space/requests/request%2Fid/decline",
+      "https://api.example.test/family-wallet/spaces/space/requests/request%2Fid",
+      "https://api.example.test/family-wallet/spaces/space/requests/request%2Fid/apply",
+    ]);
+    expect((fetchMock.mock.calls[1]?.[1] as RequestInit).method).toBe("DELETE");
+  });
+
   it("loads accepted-member Space information and role permissions", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response({
@@ -120,5 +139,17 @@ describe("member HTTP adapter", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "https://api.example.test/family-wallet/spaces/space/invites",
     );
+  });
+
+  it("revokes a selected invite by id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await httpMemberApi.revokeInvite("space", "invite/id");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://api.example.test/family-wallet/spaces/space/invites/invite%2Fid",
+    );
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).method).toBe("DELETE");
   });
 });

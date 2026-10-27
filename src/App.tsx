@@ -1,4 +1,6 @@
+import { useCallback } from "react";
 import { ConfigurationPanel } from "./components/ConfigurationPanel";
+import { CopyButton } from "./components/CopyButton";
 import { DebugLog } from "./components/DebugLog";
 import { DeploymentPanel } from "./components/DeploymentPanel";
 import { PayloadPanel } from "./components/PayloadPanel";
@@ -7,6 +9,10 @@ import { WalletPanel } from "./components/WalletPanel";
 import { useSolanaSpaceFlow } from "./flow/useSolanaSpaceFlow";
 import { MemberManagementPanel } from "./members/MemberManagementPanel";
 import { useSolanaMemberFlow } from "./members/useSolanaMemberFlow";
+import { SpaceActionPanel } from "./spaces/actions/SpaceActionPanel";
+import { SpaceBrowserPanel } from "./spaces/SpaceBrowserPanel";
+import { SpaceDetailPanel } from "./spaces/SpaceDetailPanel";
+import { useSpaceDashboard } from "./spaces/useSpaceDashboard";
 
 export default function App() {
   const flow = useSolanaSpaceFlow();
@@ -25,6 +31,20 @@ export default function App() {
     storedAddress: state.storedWallet?.address,
     onSpaceIdChange: flow.setSpaceId,
   });
+  const configured = Boolean(flow.apiBaseUrl.trim() && flow.jwt.trim());
+  const spaceDashboard = useSpaceDashboard({
+    enabled: configured,
+    configurationKey: `${flow.apiBaseUrl}\u0000${flow.jwt}`,
+    selectedSpaceId: state.spaceId ?? "",
+    onSelectSpace: flow.setSpaceId,
+  });
+  const refreshSpaceWorkspace = useCallback(async () => {
+    await Promise.all([
+      spaceDashboard.refreshList(),
+      spaceDashboard.refreshSelected(),
+      memberFlow.refresh(),
+    ]);
+  }, [memberFlow.refresh, spaceDashboard.refreshList, spaceDashboard.refreshSelected]);
 
   return (
     <main>
@@ -35,7 +55,7 @@ export default function App() {
           <p>Inspect every boundary from signing wallet through verified PDA deployment.</p>
         </div>
         <div className="header-actions">
-          {shortWallet && <span className="wallet-address mono">{shortWallet}</span>}
+          {shortWallet && <span className="wallet-address mono copyable">{shortWallet}<CopyButton value={state.connectedWallet?.address} label="connected wallet address" /></span>}
           {selectedWalletOption && (
             <img
               className="wallet-icon"
@@ -177,6 +197,18 @@ export default function App() {
         onStopPolling={flow.stopPolling}
         onFreshPayload={() => void flow.loadFreshPayload()}
       />
+      <SpaceBrowserPanel configured={configured} flow={spaceDashboard} />
+      <SpaceDetailPanel flow={spaceDashboard} />
+      {spaceDashboard.selected && (
+        <SpaceActionPanel
+          dashboard={spaceDashboard.selected}
+          role={memberFlow.role}
+          actorUserId={memberFlow.actorUserId}
+          signer={state.connectedWallet}
+          fallbackNetwork={flow.expectedNetwork}
+          onChanged={refreshSpaceWorkspace}
+        />
+      )}
       <MemberManagementPanel
         flow={memberFlow}
         spaceId={state.spaceId ?? ""}

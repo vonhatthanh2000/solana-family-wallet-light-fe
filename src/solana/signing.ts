@@ -21,6 +21,24 @@ export function publicKeyHex(publicKey: Uint8Array): `0x${string}` {
   return `0x${bytesToHex(publicKey)}`;
 }
 
+export async function signRawSolanaDigest(
+  digest: string,
+  wallet: ConnectedSigner,
+): Promise<string> {
+  if (!wallet.canSignDigest) {
+    throw new Error(`${wallet.provider} does not support raw digest signing`);
+  }
+  const digestBytes = hexToBytes32(digest);
+  const signatureBytes = await wallet.signDigest32(digestBytes);
+  if (signatureBytes.length !== 64) {
+    throw new Error("Ed25519 signature must be exactly 64 bytes");
+  }
+  if (!nacl.sign.detached.verify(digestBytes, signatureBytes, wallet.publicKeyBytes())) {
+    throw new Error("Signature does not verify over the raw 32-byte digest");
+  }
+  return bytesToHex(signatureBytes);
+}
+
 export function getSignabilityError(
   payload: SolanaOpenPayload | undefined,
   wallet: ConnectedSigner | undefined,
@@ -58,13 +76,5 @@ export async function signSolanaPayload(
   const signabilityError = getSignabilityError(payload, wallet);
   if (signabilityError) throw new Error(signabilityError);
 
-  const digestBytes = hexToBytes32(payload.digest);
-  const signatureBytes = await wallet.signDigest32(digestBytes);
-  if (signatureBytes.length !== 64) {
-    throw new Error("Ed25519 signature must be exactly 64 bytes");
-  }
-  if (!nacl.sign.detached.verify(digestBytes, signatureBytes, wallet.publicKeyBytes())) {
-    throw new Error("Signature does not verify over the raw 32-byte digest");
-  }
-  return bytesToHex(signatureBytes);
+  return signRawSolanaDigest(payload.digest, wallet);
 }

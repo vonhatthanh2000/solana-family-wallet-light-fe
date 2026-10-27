@@ -30,6 +30,9 @@ export type MemberApi = {
   listRequests(spaceId: string): Promise<MemberRequestDto[]>;
   listWaitingJoins(spaceId: string, inviteId: string): Promise<MemberRequestDto[]>;
   approve(spaceId: string, requestId: string): Promise<MemberRequestDto>;
+  decline(spaceId: string, requestId: string): Promise<MemberRequestDto>;
+  cancelRequest(spaceId: string, requestId: string): Promise<Record<string, unknown>>;
+  applyVaultRequest(spaceId: string, requestId: string): Promise<Record<string, unknown>>;
   listChainProgress(spaceId: string, requestId: string): Promise<MemberSendDto[]>;
   listMySends(spaceId: string): Promise<MemberSendDto[]>;
   prepareSend(spaceId: string, memberSendId: string): Promise<MemberSendDto>;
@@ -37,6 +40,7 @@ export type MemberApi = {
   listMembers(spaceId: string, chainId: string): Promise<SpaceMemberDto[]>;
   createInvite(spaceId: string): Promise<SpaceInviteDto>;
   listInvites(spaceId: string): Promise<SpaceInviteDto[]>;
+  revokeInvite(spaceId: string, inviteId: string): Promise<Record<string, unknown>>;
   previewInvite(code: string): Promise<InvitePreviewDto>;
   joinInvite(code: string): Promise<JoinResultDto>;
   requestRemoval(spaceId: string, userId: string): Promise<MemberRequestDto>;
@@ -67,6 +71,20 @@ export const httpMemberApi: MemberApi = {
       method: "POST",
     }),
     parseMemberRequest,
+  ),
+  decline: (spaceId, requestId) => parsed(
+    apiRequest(`/family-wallet/spaces/${id(spaceId)}/requests/${id(requestId)}/decline`, {
+      method: "POST",
+    }),
+    parseMemberRequest,
+  ),
+  cancelRequest: (spaceId, requestId) => apiRequest(
+    `/family-wallet/spaces/${id(spaceId)}/requests/${id(requestId)}`,
+    { method: "DELETE" },
+  ),
+  applyVaultRequest: (spaceId, requestId) => apiRequest(
+    `/family-wallet/spaces/${id(spaceId)}/requests/${id(requestId)}/apply`,
+    { method: "POST" },
   ),
   listChainProgress: (spaceId, requestId) => parsed(
     apiRequest(`/family-wallet/spaces/${id(spaceId)}/requests/${id(requestId)}/member-sends`),
@@ -110,6 +128,10 @@ export const httpMemberApi: MemberApi = {
   listInvites: (spaceId) => parsed(
     apiRequest(`/family-wallet/spaces/${id(spaceId)}/invites`),
     parseSpaceInvites,
+  ),
+  revokeInvite: (spaceId, inviteId) => apiRequest(
+    `/family-wallet/spaces/${id(spaceId)}/invites/${id(inviteId)}`,
+    { method: "DELETE" },
   ),
   previewInvite: (code) => parsed(
     apiRequest(`/family-wallet/invites/${id(code)}`),

@@ -99,7 +99,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
 
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${runtimeConfiguration.jwt}`);
-  headers.set("Content-Type", "application/json");
+  if (!(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
 
   let response: Response;
   try {

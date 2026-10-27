@@ -1,6 +1,8 @@
 import { getWallets } from "@wallet-standard/app";
 import type { Wallet, WalletAccount, WalletIcon } from "@wallet-standard/base";
 import {
+  SolanaSignAndSendTransaction,
+  type SolanaSignAndSendTransactionFeature,
   SolanaSignMessage,
   type SolanaSignMessageFeature,
 } from "@solana/wallet-standard-features";
@@ -10,11 +12,13 @@ import {
   type StandardConnectFeature,
   type StandardEventsFeature,
 } from "@wallet-standard/features";
+import bs58 from "bs58";
 import type { ConnectedSigner } from "./signers/types";
 
 type CompatibleFeatures = StandardConnectFeature &
   StandardEventsFeature &
-  SolanaSignMessageFeature;
+  SolanaSignMessageFeature &
+  Partial<SolanaSignAndSendTransactionFeature>;
 
 type CompatibleWallet = Omit<Wallet, "features"> & {
   features: CompatibleFeatures;
@@ -119,37 +123,48 @@ function signerFor(
   const publicKey = Uint8Array.from(account.publicKey);
   const fingerprint = walletFingerprint(wallet);
 
+  const activeWalletAndAccount = () => {
+    const registeredWallets = getWallets().get();
+    const originalWallet = registeredWallets.find((candidate) => walletId(candidate) === id);
+    const replacements = originalWallet
+      ? []
+      : registeredWallets.filter(
+          (candidate) =>
+            isCompatibleWallet(candidate) &&
+            walletFingerprint(candidate) === fingerprint &&
+            hasExpectedAccount(candidate, account.address, publicKey),
+        );
+    const activeWallet = originalWallet ?? (replacements.length === 1 ? replacements[0] : undefined);
+    if (!activeWallet || !isCompatibleWallet(activeWallet)) {
+      throw new Error(`${wallet.name} is no longer available. Reconnect the wallet and try again.`);
+    }
+    const activeAccount = activeWallet.accounts.find(
+      (candidate) =>
+        candidate.address === account.address &&
+        bytesEqual(Uint8Array.from(candidate.publicKey), publicKey),
+    );
+    if (!activeAccount) {
+      throw new Error(
+        `${wallet.name} account changed from ${account.address}. Reload the payload for the active account.`,
+      );
+    }
+    return { activeWallet, activeAccount };
+  };
+
+  const transactionFeature = wallet.features[SolanaSignAndSendTransaction] as
+    | SolanaSignAndSendTransactionFeature[typeof SolanaSignAndSendTransaction]
+    | undefined;
+
   return {
     address: account.address,
     provider: wallet.name,
     canSignDigest: true,
+    canSignTransaction: typeof transactionFeature?.signAndSendTransaction === "function" &&
+      transactionFeature.supportedTransactionVersions.includes("legacy"),
     publicKeyBytes: () => Uint8Array.from(publicKey),
     signDigest32: async (digest: Uint8Array) => {
       if (digest.length !== 32) throw new Error("Signing digest must be exactly 32 bytes");
-      const registeredWallets = getWallets().get();
-      const originalWallet = registeredWallets.find((candidate) => walletId(candidate) === id);
-      const replacements = originalWallet
-        ? []
-        : registeredWallets.filter(
-            (candidate) =>
-              isCompatibleWallet(candidate) &&
-              walletFingerprint(candidate) === fingerprint &&
-              hasExpectedAccount(candidate, account.address, publicKey),
-          );
-      const activeWallet = originalWallet ?? (replacements.length === 1 ? replacements[0] : undefined);
-      if (!activeWallet || !isCompatibleWallet(activeWallet)) {
-        throw new Error(`${wallet.name} is no longer available. Reconnect the wallet and try again.`);
-      }
-      const activeAccount = activeWallet.accounts.find(
-        (candidate) =>
-          candidate.address === account.address &&
-          bytesEqual(Uint8Array.from(candidate.publicKey), publicKey),
-      );
-      if (!activeAccount) {
-        throw new Error(
-          `${wallet.name} account changed from ${account.address}. Reload the payload for the active account.`,
-        );
-      }
+      const { activeWallet, activeAccount } = activeWalletAndAccount();
       const [output] = await activeWallet.features[SolanaSignMessage].signMessage({
         account: activeAccount,
         message: digest,
@@ -164,6 +179,29 @@ function signerFor(
         throw new Error("Ed25519 signature must be exactly 64 bytes");
       }
       return Uint8Array.from(output.signature);
+    },
+    signAndSendTransaction: async (transaction: Uint8Array, chain: `${string}:${string}`) => {
+      const { activeWallet, activeAccount } = activeWalletAndAccount();
+      const feature = activeWallet.features[SolanaSignAndSendTransaction] as
+        | SolanaSignAndSendTransactionFeature[typeof SolanaSignAndSendTransaction]
+        | undefined;
+      if (!feature || !activeAccount.features.includes(SolanaSignAndSendTransaction)) {
+        throw new Error(`${wallet.name} does not support signing and sending Solana transactions`);
+      }
+      if (!feature.supportedTransactionVersions.includes("legacy")) {
+        throw new Error(`${wallet.name} does not support legacy Solana transactions`);
+      }
+      if (!activeAccount.chains.includes(chain)) {
+        throw new Error(`${wallet.name} account is not connected to ${chain}`);
+      }
+      const [output] = await feature.signAndSendTransaction({
+        account: activeAccount,
+        transaction,
+        chain,
+        options: { preflightCommitment: "confirmed" },
+      });
+      if (!output?.signature?.length) throw new Error(`${wallet.name} did not return a transaction signature`);
+      return bs58.encode(output.signature);
     },
   };
 }

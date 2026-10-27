@@ -1,4 +1,5 @@
 import type { DiagnosticError } from "../api/types";
+import { CopyButton } from "./CopyButton";
 
 type Props = {
   spaceName: string;
@@ -58,12 +59,12 @@ export function SpacePanel({
       )}
       <label>
         Existing / created Space id
-        <input
-          className="mono"
-          value={spaceId}
-          onChange={(event) => onSpaceIdChange(event.target.value)}
-          placeholder="0x…"
-        />
+        <span className="input-copy-row"><input
+            className="mono"
+            value={spaceId}
+            onChange={(event) => onSpaceIdChange(event.target.value)}
+            placeholder="0x…"
+          /><CopyButton value={spaceId} label="Space ID" /></span>
       </label>
       <div className="actions">
         <button

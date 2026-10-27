@@ -7,4 +7,6 @@ export interface RawEd25519Signer {
 
 export type ConnectedSigner = RawEd25519Signer & {
   readonly canSignDigest: boolean;
+  readonly canSignTransaction?: boolean;
+  signAndSendTransaction?(transaction: Uint8Array, chain: `${string}:${string}`): Promise<string>;
 };

@@ -1,4 +1,5 @@
 import type { SolanaMemberFlow } from "./useSolanaMemberFlow";
+import { CopyButton } from "../components/CopyButton";
 import {
   memberDisplayName,
   requestActionLabel,
@@ -54,7 +55,7 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
             <span className="status status-done">{flow.space.membershipStatus}</span>
           </div>
           <dl className="compact-details">
-            <div><dt>Space ID</dt><dd className="mono wrap">{flow.space.spaceId}</dd></div>
+            <div><dt>Space ID</dt><dd className="mono wrap"><span className="copyable">{flow.space.spaceId}<CopyButton value={flow.space.spaceId} label="Space ID" /></span></dd></div>
             <div><dt>Your role</dt><dd>{flow.space.role}</dd></div>
             <div><dt>Member change</dt><dd>{flow.space.memberChangeInProgress ? "In progress" : "None"}</dd></div>
           </dl>
@@ -82,7 +83,7 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
               <div key={chain.chainObjectId}>
                 <strong>{chain.chainType} {chain.chainId}</strong>
                 <span>{chain.isDeployed ? "Deployed" : chain.status ?? "Not deployed"}</span>
-                <code>{chain.address ?? "No deposit address"}</code>
+                <span className="copyable"><code>{chain.address ?? "No deposit address"}</code><CopyButton value={chain.address} label="deposit address" /></span>
               </div>
             ))}
           </div>
@@ -109,10 +110,10 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
           {flow.createdInvite && (
             <div className="result-box">
               <strong>{flow.inviteReused ? "Existing open MEMBER invite" : "New MEMBER invite"}</strong>
-              <code>{flow.createdInvite.code}</code>
+              <span className="copyable"><code>{flow.createdInvite.code}</code><CopyButton value={flow.createdInvite.code} label="invite code" /></span>
               <span>Status: {flow.createdInvite.status}</span>
               <span>Expires: {new Date(flow.createdInvite.expiresAt).toLocaleString()}</span>
-              <button className="secondary" onClick={() => copy(flow.createdInvite!.code)}>Copy code</button>
+              <div className="button-row"><button className="secondary" onClick={() => copy(flow.createdInvite!.code)}>Copy code</button><button className="danger" onClick={() => void flow.revokeInvite()} disabled={busy}>Revoke invite</button></div>
             </div>
           )}
           <label>
@@ -141,7 +142,7 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
           {flow.joinResult && (
             <div className="result-box success-box">
               <strong>Join request created</strong>
-              <span className="mono">{flow.joinResult.requestId}</span>
+              <span className="mono copyable">{flow.joinResult.requestId}<CopyButton value={flow.joinResult.requestId} label="request ID" /></span>
               <span>Status: {flow.joinResult.status}. An eligible member must approve it.</span>
             </div>
           )}
@@ -155,6 +156,7 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
           {flow.requests.map((request) => {
             const label = requestActionLabel(request);
             const canApprove = flow.canApprove(request);
+            const canDecline = flow.canDecline(request);
             const alreadyApproved = Boolean(
               flow.actorUserId && request.seals.includes(flow.actorUserId),
             );
@@ -169,12 +171,14 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
                   <div><dt>Approval</dt><dd>{request.seals.length} / {request.need} seals</dd></div>
                   <div><dt>Target</dt><dd className="mono">{shortId(request.targetUserId)}</dd></div>
                 </dl>
-                <button
-                  onClick={() => void flow.approve(request)}
-                  disabled={!canApprove || busy}
-                >
-                  {flow.busyAction === `approve:${request.id}` ? "Approving…" : `Approve: ${label}`}
-                </button>
+                <div className="button-row">
+                  <button onClick={() => void flow.approve(request)} disabled={!canApprove || busy}>
+                    {flow.busyAction === `approve:${request.id}` ? "Approving…" : `Approve: ${label}`}
+                  </button>
+                  {canDecline && <button className="danger" onClick={() => void flow.decline(request)} disabled={busy}>{flow.busyAction === `decline:${request.id}` ? "Declining…" : "Decline"}</button>}
+                  {request.proposerUserId === flow.actorUserId && request.status === "PENDING" && /VAULT|MONEY|RULE/.test(request.kind) && <button className="secondary" onClick={() => void flow.cancelRequest(request)} disabled={busy}>Withdraw</button>}
+                  {request.status === "APPROVED" && /VAULT|MONEY/.test(request.kind) && <button className="secondary" onClick={() => void flow.applyVaultRequest(request)} disabled={busy}>Retry apply</button>}
+                </div>
                 {!canApprove && (
                   <small className="muted">
                     {alreadyApproved
@@ -228,11 +232,11 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
                     <strong>Review what Solflare will authorize</strong>
                     <dl className="compact-details">
                       <div><dt>Action</dt><dd>{send.send.signed.action.kind}</dd></div>
-                      <div><dt>Space</dt><dd className="mono">{shortId(send.send.signed.space)}</dd></div>
-                      <div><dt>Program</dt><dd className="mono">{shortId(send.send.signed.programId)}</dd></div>
+                      <div><dt>Space</dt><dd className="mono"><span className="copyable">{shortId(send.send.signed.space)}<CopyButton value={send.send.signed.space} label="Space address" /></span></dd></div>
+                      <div><dt>Program</dt><dd className="mono"><span className="copyable">{shortId(send.send.signed.programId)}<CopyButton value={send.send.signed.programId} label="program address" /></span></dd></div>
                       <div><dt>Nonce</dt><dd>{send.send.signed.nonce}</dd></div>
                       <div><dt>Valid until</dt><dd>{new Date(send.send.signed.validUntil * 1000).toLocaleString()}</dd></div>
-                      <div><dt>Digest</dt><dd className="mono">{shortId(send.send.digest)}</dd></div>
+                      <div><dt>Digest</dt><dd className="mono"><span className="copyable">{shortId(send.send.digest)}<CopyButton value={send.send.digest} label="member-change digest" /></span></dd></div>
                     </dl>
                   </div>
                   {problem && <p className="blocking-reason">{problem}</p>}
@@ -247,13 +251,13 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
                 </>
               )}
               {(submitted || send.txHash) && (
-                <a
+                <div className="button-row"><CopyButton value={submitted?.txHash ?? send.txHash} label="transaction hash" /><a
                   href={`https://explorer.solana.com/tx/${submitted?.txHash ?? send.txHash}?cluster=devnet`}
                   target="_blank"
                   rel="noreferrer"
                 >
                   View submitted transaction ↗
-                </a>
+                </a></div>
               )}
             </article>
           );
@@ -279,7 +283,7 @@ export function MemberManagementPanel({ flow, spaceId }: Props) {
               <div>
                 <strong>{memberDisplayName(member)}</strong>
                 <span>{member.role} · {member.status}</span>
-                <code>{member.wallet?.address ?? "No Solana wallet"}</code>
+                <span className="copyable"><code>{member.wallet?.address ?? "No Solana wallet"}</code><CopyButton value={member.wallet?.address} label={`${memberDisplayName(member)} wallet address`} /></span>
               </div>
               {member.status === "ACTIVE" && member.userId !== flow.actorUserId && (
                 <div className="button-row">
