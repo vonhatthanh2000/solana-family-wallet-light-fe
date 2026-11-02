@@ -7,10 +7,8 @@ import type { ConnectedSigner } from "../../solana/signers/types";
 import type { FamilyRoleDto } from "../../members/contracts";
 import type { SpaceChainDto, VaultDto } from "../contracts";
 import type {
-  GuardianActionDto, MoneyQuoteDto, SpaceCategoryDto, SpacePermission, SpendDto,
-  VaultTokenOptionDto,
+  MoneyQuoteDto, SpaceCategoryDto, SpacePermission, SpendDto, VaultTokenOptionDto,
 } from "./contracts";
-import { shouldLoadGuardianActions } from "./action-availability";
 import { spaceActionApi, type CreateVaultInput, type SpendInput } from "./space-action-api";
 
 type Inputs = {
@@ -27,7 +25,6 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
   const [categories, setCategories] = useState<SpaceCategoryDto[]>([]);
   const [vaultTokens, setVaultTokens] = useState<VaultTokenOptionDto[]>([]);
   const [spends, setSpends] = useState<SpendDto[]>([]);
-  const [guardianActions, setGuardianActions] = useState<GuardianActionDto[]>([]);
   const [quote, setQuote] = useState<MoneyQuoteDto>();
   const [quoteFor, setQuoteFor] = useState<string>();
   const [feePreview, setFeePreview] = useState<Record<string, unknown>>();
@@ -57,28 +54,26 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
   const loadSupport = useCallback(async () => {
     if (!spaceId) return;
     const spendTasks = chains.filter((chain) => chain.isDeployed).map((chain) => spaceActionApi.listSpends(spaceId, chain.chainId));
-    const [categoryResult, tokenResult, spendResults, guardianResult] = await Promise.all([
+    const [categoryResult, tokenResult, spendResults] = await Promise.all([
       spaceActionApi.listCategories(spaceId),
       spaceActionApi.listVaultTokens(spaceId),
       Promise.all(spendTasks),
-      shouldLoadGuardianActions(role?.key, chains) ? spaceActionApi.listGuardianActions(spaceId) : Promise.resolve([]),
     ]);
-    setCategories(categoryResult); setVaultTokens(tokenResult); setSpends(spendResults.flat()); setGuardianActions(guardianResult);
-  }, [chains, role?.key, spaceId]);
+    setCategories(categoryResult); setVaultTokens(tokenResult); setSpends(spendResults.flat());
+  }, [chains, spaceId]);
 
   const refresh = useCallback(async () => {
     await run("refresh-actions", loadSupport);
   }, [loadSupport, run]);
 
   useEffect(() => {
-    setCategories([]); setVaultTokens([]); setSpends([]); setGuardianActions([]); setQuote(undefined); setQuoteFor(undefined); setFeePreview(undefined);
+    setCategories([]); setVaultTokens([]); setSpends([]); setQuote(undefined); setQuoteFor(undefined); setFeePreview(undefined);
     if (spaceId && role) void refresh();
   }, [refresh, role?.key, spaceId]);
 
   // A spend another member proposes arrives only from the backend, so an idle Space keeps a slower
   // heartbeat instead of waiting for a manual refresh.
-  const activeWork = spends.some((spend) => ["open", "queued", "signing", "submitted"].includes(spend.status)) ||
-    guardianActions.some((action) => ["signing", "submitted"].includes(action.status));
+  const activeWork = spends.some((spend) => ["open", "queued", "signing", "submitted"].includes(spend.status));
   const interval = pollIntervalMs(activeWork);
   useEffect(() => {
     if (!spaceId || !role) return;
@@ -94,7 +89,7 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
   }, [loadSupport, onChanged]);
 
   return {
-    categories, vaultTokens, spends, guardianActions, quote, quoteFor, feePreview, busyAction, notice, error, can,
+    categories, vaultTokens, spends, quote, quoteFor, feePreview, busyAction, notice, error, can,
     roleKey: role?.key, actorUserId, signer, vaults,
     clearError: () => setError(undefined), refresh,
     renameSpace: (name: string) => run("rename-space", async () => { await spaceActionApi.renameSpace(spaceId, name); await changed("Space renamed for every member."); }),
@@ -138,16 +133,6 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
     }),
     cancelSpend: (spendId: string) => run(`cancel-spend:${spendId}`, async () => { await spaceActionApi.cancelSpend(spaceId, spendId); await changed("Spend cancelled and its reservation released."); }),
     setSpendCategory: (spendId: string, categoryId: string | null) => run(`spend-category:${spendId}`, async () => { await spaceActionApi.setSpendCategory(spaceId, spendId, categoryId); await changed("Spend category updated."); }),
-    guardianAction: (operation: string, targetGuardian?: string) => run(`guardian:${operation}`, async () => {
-      if (!signer) throw new Error("Connect the Owner Solana wallet first");
-      const payload = await spaceActionApi.guardianPayload(spaceId, operation, targetGuardian);
-      const fields = spaceActionApi.guardianPayloadFields(payload);
-      if (!fields.actionId || !fields.digest) throw new Error("Guardian payload is missing actionId or digest");
-      const signature = await signRawSolanaDigest(fields.digest, signer);
-      await spaceActionApi.submitGuardian(spaceId, fields.actionId, signature);
-      await changed("Guardian action submitted; poll until executed or failed.");
-    }),
-    executeGuardianRemoval: () => run("guardian:execute-removal", async () => { await spaceActionApi.executeGuardianRemoval(spaceId); await changed("Due guardian removal relayed; poll its action status."); }),
   };
 }
 

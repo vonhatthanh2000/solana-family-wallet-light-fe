@@ -1,12 +1,10 @@
 import { useMemo, useState, type FormEvent } from "react";
-import bs58 from "bs58";
 import { CopyButton } from "../../components/CopyButton";
 import type { FamilyRoleDto, MemberSendDto } from "../../members/contracts";
 import type { ConnectedSigner } from "../../solana/signers/types";
 import type { SpaceDashboard } from "../contracts";
 import { DepositPanel } from "../DepositPanel";
 import { baseUnitsToDecimal, decimalToBaseUnits } from "../deposits";
-import { hasActiveSolanaChain } from "./action-availability";
 import type { SpacePermission, SpendDto } from "./contracts";
 import { SignaturePrompt } from "../signing/SignaturePrompt";
 import { pendingSignatures, type SignatureItem } from "../signing/signature-queue";
@@ -56,8 +54,6 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
   const [spendVaultId, setSpendVaultId] = useState("");
   const [spendCategoryId, setSpendCategoryId] = useState("");
   const [spendNote, setSpendNote] = useState("");
-  const [guardianOperation, setGuardianOperation] = useState("propose_guardian_removal");
-  const [targetGuardian, setTargetGuardian] = useState("");
   const busy = Boolean(actions.busyAction);
   const chainTokens = useMemo(
     () => actions.vaultTokens.filter((token) => token.chainId === spendChainId),
@@ -67,11 +63,9 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
   const spendDecimals = spendToken === "native" ? 9 : selectedSpendToken?.decimals;
   const spendSymbol = spendToken === "native" ? "SOL" : selectedSpendToken?.symbol ?? "Token";
   const actorMember = dashboard.members.members.find((member) => member.userId === actorUserId);
-  const activeSolana = hasActiveSolanaChain(dashboard.space.chains);
 
   const signatureItems = pendingSignatures({
     spends: actions.spends,
-    guardianActions: actions.guardianActions,
     memberSends,
     actorUserId,
     canVote: actions.can("VOTE"),
@@ -108,11 +102,6 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
     ? tokenVaults.filter((vault) => actorMember?.spendVaultIds.includes(vault.vaultId))
     : tokenVaults;
   const quoteMatches = actions.quoteFor === `${moneyVaultId}:${moneyDirection}:${moneyAmount}`;
-  const guardianTargetValid = (() => {
-    if (guardianOperation !== "rotate_guardian") return true;
-    try { return bs58.decode(targetGuardian.trim()).length === 32; }
-    catch { return false; }
-  })();
   const canManageVault = actions.can("MANAGE_VAULT");
   const quorumPercent = Number(vaultQuorumPercent);
   const customVaultRuleValid = vaultRuleMode === "default" || (
@@ -255,23 +244,6 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
         <div className="request-list">{actions.spends.map((spend) => <SpendActionCard key={spend.spendId} spend={spend} actions={actions} busy={busy} />)}</div>
       </div>
 
-      {actions.roleKey === "OWNER" && !activeSolana && (
-        <div className="result warning">Solana guardian controls will be available after this Space's Solana deployment completes.</div>
-      )}
-
-      {actions.roleKey === "OWNER" && activeSolana && (
-        <div className="action-group guardian-panel">
-          <h3>Solana guardian security</h3><p>Owner-only. Signed actions are not complete until their persisted status becomes executed.</p>
-          <form className="inline-form" onSubmit={submit(() => void actions.guardianAction(guardianOperation, guardianOperation === "rotate_guardian" ? targetGuardian : undefined))}>
-            <label>Operation<select value={guardianOperation} onChange={(event) => setGuardianOperation(event.target.value)}><option value="rotate_guardian">Rotate guardian</option><option value="install_guardian">Install guardian</option><option value="propose_guardian_removal">Propose removal</option><option value="cancel_guardian_removal">Cancel removal</option></select></label>
-            {guardianOperation === "rotate_guardian" && <label>New guardian public key<input className="mono" value={targetGuardian} onChange={(event) => setTargetGuardian(event.target.value)} /></label>}
-            <button disabled={busy || !guardianTargetValid}>Build, sign, and submit</button>
-            <button type="button" className="secondary" disabled={busy} onClick={() => void actions.executeGuardianRemoval()}>Relay due removal</button>
-          </form>
-          {guardianOperation === "rotate_guardian" && targetGuardian && !guardianTargetValid && <p className="bad">Enter a valid 32-byte base58 Solana public key.</p>}
-          <div className="request-list">{actions.guardianActions.map((action) => <article className="request-card" key={action.actionId}><div className="request-title"><strong>{action.operation.replaceAll("_", " ")}</strong><span className={`status status-${action.status}`}>{action.status}</span></div>{action.failReason && <p className="bad">{action.failReason}</p>}{action.txHash && <span className="copyable"><code className="wrap">{action.txHash}</code><CopyButton value={action.txHash} label="guardian transaction hash" /></span>}</article>)}</div>
-        </div>
-      )}
     </section>
   );
 }

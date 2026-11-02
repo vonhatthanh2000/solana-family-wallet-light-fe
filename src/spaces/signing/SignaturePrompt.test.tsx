@@ -56,17 +56,6 @@ describe("SignaturePrompt", () => {
     expect(html).not.toContain("Sign now");
   });
 
-  it("sends the user back to the guardian flow instead of signing a stale payload", () => {
-    const html = renderToStaticMarkup(<SignaturePrompt
-      items={[{ id: "guardian:g-1", kind: "guardian", title: "A guardian action is waiting for its signature", detail: "rotate_guardian · start the operation again to get a fresh payload" }]}
-      busy={false}
-      onSign={vi.fn()}
-    />);
-
-    expect(html).toContain("Restart the guardian operation");
-    expect(html).not.toContain("Sign now");
-  });
-
   it("shows the wallet is busy while a prompt is open", () => {
     const html = renderToStaticMarkup(<SignaturePrompt items={[approval]} busy onSign={vi.fn()} />);
 

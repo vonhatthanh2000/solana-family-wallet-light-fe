@@ -1,8 +1,8 @@
 import type { MemberSendDto } from "../../members/contracts";
 import { sendActionLabel } from "../../members/member-view";
-import type { GuardianActionDto, SpendDto } from "../actions/contracts";
+import type { SpendDto } from "../actions/contracts";
 
-export type SignatureKind = "spend-approval" | "spend-execution" | "member-send" | "guardian";
+export type SignatureKind = "spend-approval" | "spend-execution" | "member-send";
 
 export type SignatureItem = {
   id: string;
@@ -16,7 +16,6 @@ export type SignatureItem = {
 
 type Inputs = {
   spends: readonly SpendDto[];
-  guardianActions: readonly GuardianActionDto[];
   memberSends: readonly MemberSendDto[];
   actorUserId?: string;
   canVote: boolean;
@@ -44,7 +43,7 @@ export function awaitsMyExecution(spend: SpendDto, actorUserId: string | undefin
 }
 
 export function pendingSignatures({
-  spends, guardianActions, memberSends, actorUserId, canVote, onChainSigner, signerAddress,
+  spends, memberSends, actorUserId, canVote, onChainSigner, signerAddress,
 }: Inputs): SignatureItem[] {
   const noWallet = signerAddress ? undefined : "Connect the signing wallet first";
   const items: SignatureItem[] = [];
@@ -82,18 +81,6 @@ export function pendingSignatures({
       title: "Sign an on-chain member change",
       detail: `${sendActionLabel(send)} on ${send.chainType} · status ${send.status}`,
       digest: send.send?.digest,
-      blocked: noWallet,
-    });
-  }
-
-  for (const action of guardianActions) {
-    if (action.status !== "signing") continue;
-    items.push({
-      id: `guardian:${action.actionId}`,
-      kind: "guardian",
-      title: "A guardian action is waiting for its signature",
-      detail: `${action.operation} · start the operation again to get a fresh payload`,
-      digest: action.digest,
       blocked: noWallet,
     });
   }

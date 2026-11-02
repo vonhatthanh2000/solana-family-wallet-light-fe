@@ -72,16 +72,6 @@ describe("Space action HTTP adapter", () => {
     expect((init.body as FormData).get("file")).toBe(file);
   });
 
-  it("sends the rotation target only for guardian rotation payloads", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response({ actionId: "action", digest: `0x${"22".repeat(32)}` }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await spaceActionApi.guardianPayload("space", "rotate_guardian", "guardian-key");
-
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.example.test/family-wallet/spaces/space/solana/guardian/rotate_guardian/payload");
-    expect(JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string)).toEqual({ targetGuardian: "guardian-key" });
-  });
-
   it("sends a Vault rule proposal as the direct request body", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({ requestId: "request", kind: "VAULT_RULE" }));
     vi.stubGlobal("fetch", fetchMock);

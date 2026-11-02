@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MemberSendDto } from "../../members/contracts";
-import type { GuardianActionDto, SpendDto } from "../actions/contracts";
+import type { SpendDto } from "../actions/contracts";
 import { awaitsMyApproval, awaitsMyExecution, pendingSignatures } from "./signature-queue";
 
 const spend: SpendDto = {
@@ -19,7 +19,6 @@ const memberSend: MemberSendDto = {
 
 const base = {
   spends: [] as SpendDto[],
-  guardianActions: [] as GuardianActionDto[],
   memberSends: [] as MemberSendDto[],
   actorUserId: "voter",
   canVote: true,
@@ -99,15 +98,6 @@ describe("pendingSignatures", () => {
 
   it("ignores a member send that already reached the chain", () => {
     expect(pendingSignatures({ ...base, memberSends: [{ ...memberSend, status: "executed" }] })).toEqual([]);
-  });
-
-  it("flags a guardian action stuck in signing without offering a stale digest to sign", () => {
-    const [item] = pendingSignatures({
-      ...base,
-      guardianActions: [{ actionId: "g-1", operation: "rotate_guardian", status: "signing", digest: "0xabcd" }],
-    });
-    expect(item!.kind).toBe("guardian");
-    expect(item!.detail).toContain("fresh payload");
   });
 
   it("explains that the wallet is missing instead of offering a dead button", () => {

@@ -2,8 +2,8 @@ import { apiRequest } from "../../api/client";
 import { asRecord } from "../../api/types";
 import { parseVaults, type ApprovalRuleDto, type VaultDto } from "../contracts";
 import {
-  parseCategories, parseGuardianActions, parseMoneyQuote, parseMoneyResult, parseSpends,
-  parseVaultTokenOptions, type GuardianActionDto, type MoneyQuoteDto, type MoneyResultDto,
+  parseCategories, parseMoneyQuote, parseMoneyResult, parseSpends,
+  parseVaultTokenOptions, type MoneyQuoteDto, type MoneyResultDto,
   type SpaceCategoryDto, type SpendDto, type VaultTokenOptionDto,
 } from "./contracts";
 
@@ -43,12 +43,4 @@ export const spaceActionApi = {
   executeSpend: (spaceId: string, spendId: string, signature?: string): Promise<Record<string, unknown>> => apiRequest(`/family-wallet/spaces/${id(spaceId)}/spend/execute`, json("POST", { spendId, ...(signature ? { signature } : {}) })),
   cancelSpend: (spaceId: string, spendId: string) => apiRequest(`/family-wallet/spaces/${id(spaceId)}/spend?spendId=${id(spendId)}`, json("DELETE")),
   setSpendCategory: (spaceId: string, spendId: string, categoryId: string | null) => apiRequest(`/family-wallet/spaces/${id(spaceId)}/spend/${id(spendId)}/category`, json("PATCH", { categoryId })),
-  listGuardianActions: (spaceId: string): Promise<GuardianActionDto[]> => parsed(apiRequest(`/family-wallet/spaces/${id(spaceId)}/solana/guardian/actions`), parseGuardianActions),
-  guardianPayload: (spaceId: string, operation: string, targetGuardian?: string): Promise<Record<string, unknown>> => apiRequest(`/family-wallet/spaces/${id(spaceId)}/solana/guardian/${id(operation)}/payload`, json("POST", targetGuardian ? { targetGuardian } : {})),
-  submitGuardian: (spaceId: string, actionId: string, signature: string) => apiRequest(`/family-wallet/spaces/${id(spaceId)}/solana/guardian/actions/${id(actionId)}/submit`, json("POST", { signature })),
-  executeGuardianRemoval: (spaceId: string) => apiRequest(`/family-wallet/spaces/${id(spaceId)}/solana/guardian/execute-removal`, json("POST")),
-  guardianPayloadFields: (value: unknown) => {
-    const row = asRecord(value, "guardian payload");
-    return { actionId: String(row.actionId ?? row._id ?? ""), digest: String(row.digest ?? "") };
-  },
 };

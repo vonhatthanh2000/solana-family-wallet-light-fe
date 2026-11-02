@@ -12,7 +12,6 @@ const KIND_HINTS: Record<string, string> = {
   "spend-approval": "Your wallet signs the raw 32-byte intent digest. Approving does not move money.",
   "spend-execution": "Your wallet signs the raw 32-byte send digest inside its five-minute window.",
   "member-send": "Your wallet signs the raw 32-byte member-send digest for this chain.",
-  guardian: "Guardian payloads expire, so start the operation again to get a fresh digest.",
 };
 
 function shortDigest(digest: string | undefined): string | undefined {
@@ -58,9 +57,7 @@ export function SignaturePrompt({ items, busy, walletLabel, onSign }: Props) {
             {shortDigest(item.digest) && <code className="mono">{shortDigest(item.digest)}</code>}
             {item.blocked
               ? <span className="status status-pending">{item.blocked}</span>
-              : item.kind === "guardian"
-                ? <span className="status status-signing">Restart the guardian operation</span>
-                : <button type="button" disabled={busy} onClick={() => onSign(item)}>{busy ? "Waiting for the wallet…" : "Sign now"}</button>}
+              : <button type="button" disabled={busy} onClick={() => onSign(item)}>{busy ? "Waiting for the wallet…" : "Sign now"}</button>}
           </article>
         ))}
       </div>

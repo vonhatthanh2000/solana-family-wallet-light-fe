@@ -49,16 +49,6 @@ export type SpendDto = {
   send: { digest: string; signed: Record<string, unknown> } | null;
   txHash: string | null;
 };
-export type GuardianActionDto = {
-  actionId: string;
-  operation: string;
-  status: string;
-  digest?: string;
-  validUntil?: number;
-  targetGuardian?: string;
-  txHash?: string;
-  failReason?: string;
-};
 
 const text = (value: unknown, field: string) => {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${field} must be a string`);
@@ -96,7 +86,6 @@ export function parseVaultTokenOptions(value: unknown): VaultTokenOptionDto[] {
     };
   });
 }
-
 export function parseMoneyQuote(value: unknown): MoneyQuoteDto {
   const row = asRecord(value, "money quote");
   const available = asRecord(row.available, "money quote.available");
@@ -142,22 +131,6 @@ export function parseSpends(value: unknown): SpendDto[] {
       readyToSend: row.readyToSend === true,
       send: send ? { digest: text(send.digest, "spend.send.digest"), signed: asRecord(send.signed, "spend.send.signed") } : null,
       txHash: row.txHash === null ? null : text(row.txHash, "spend.txHash"),
-    };
-  });
-}
-
-export function parseGuardianActions(value: unknown): GuardianActionDto[] {
-  if (!Array.isArray(value)) throw new Error("guardian actions response must be an array");
-  return value.map((item, index) => {
-    const row = asRecord(item, `guardian actions[${index}]`);
-    return {
-      actionId: text(row.actionId ?? row._id, "guardian action.actionId"),
-      operation: text(row.operation, "guardian action.operation"), status: text(row.status, "guardian action.status"),
-      digest: typeof row.digest === "string" ? row.digest : undefined,
-      validUntil: typeof row.validUntil === "number" ? row.validUntil : undefined,
-      targetGuardian: typeof row.targetGuardian === "string" ? row.targetGuardian : undefined,
-      txHash: typeof row.txHash === "string" ? row.txHash : undefined,
-      failReason: typeof row.failReason === "string" ? row.failReason : undefined,
     };
   });
 }
