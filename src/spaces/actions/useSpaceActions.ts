@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DiagnosticError } from "../../api/types";
+import type { DiagnosticError, TokenDepositAddressDto } from "../../api/types";
+import { getDepositAddresses } from "../../api/endpoints";
 import { pollIntervalMs } from "../../flow/poll-interval";
 import { normalizeError } from "../../flow/state";
 import { signRawSolanaDigest } from "../../solana/signing";
@@ -25,13 +26,16 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
   const [categories, setCategories] = useState<SpaceCategoryDto[]>([]);
   const [vaultTokens, setVaultTokens] = useState<VaultTokenOptionDto[]>([]);
   const [spends, setSpends] = useState<SpendDto[]>([]);
+  const [depositTokens, setDepositTokens] = useState<TokenDepositAddressDto[]>([]);
   const [quote, setQuote] = useState<MoneyQuoteDto>();
   const [quoteFor, setQuoteFor] = useState<string>();
   const [feePreview, setFeePreview] = useState<Record<string, unknown>>();
   const [busyAction, setBusyAction] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<DiagnosticError>();
+  const [unsupportedTokenRevision, setUnsupportedTokenRevision] = useState(0);
   const busyRef = useRef(false);
+  const reloadSupportRef = useRef<(() => Promise<void>) | undefined>(undefined);
   const permissions = useMemo(() => new Set(role?.permissions ?? []), [role]);
   const can = useCallback((permission: SpacePermission) => permissions.has(permission), [permissions]);
 
@@ -43,6 +47,11 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
     catch (failure) {
       const diagnostic = normalizeError(failure, "backend");
       setError(diagnostic);
+      if (diagnostic.code === "UNSUPPORTED_TOKEN") {
+        await reloadSupportRef.current?.().catch(() => undefined);
+        setUnsupportedTokenRevision((current) => current + 1);
+        setNotice("That token is no longer supported. Supported tokens were refreshed; choose another token.");
+      }
       if (["ROLE_NOT_ALLOWED", "NOT_A_MEMBER", "VAULT_NOT_ALLOWED", "NOT_A_SIGNER"].includes(diagnostic.code ?? "")) {
         void onChanged().catch(() => undefined);
       }
@@ -54,20 +63,27 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
   const loadSupport = useCallback(async () => {
     if (!spaceId) return;
     const spendTasks = chains.filter((chain) => chain.isDeployed).map((chain) => spaceActionApi.listSpends(spaceId, chain.chainId));
-    const [categoryResult, tokenResult, spendResults] = await Promise.all([
+    const [categoryResult, tokenResult, spendResults, depositResult] = await Promise.allSettled([
       spaceActionApi.listCategories(spaceId),
       spaceActionApi.listVaultTokens(spaceId),
       Promise.all(spendTasks),
+      getDepositAddresses(spaceId),
     ]);
-    setCategories(categoryResult); setVaultTokens(tokenResult); setSpends(spendResults.flat());
+    if (categoryResult.status === "fulfilled") setCategories(categoryResult.value);
+    if (tokenResult.status === "fulfilled") setVaultTokens(tokenResult.value);
+    if (spendResults.status === "fulfilled") setSpends(spendResults.value.flat());
+    if (depositResult.status === "fulfilled") setDepositTokens(depositResult.value.tokenDepositAddresses);
+    const failed = [categoryResult, tokenResult, spendResults, depositResult].find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
   }, [chains, spaceId]);
+  reloadSupportRef.current = loadSupport;
 
   const refresh = useCallback(async () => {
     await run("refresh-actions", loadSupport);
   }, [loadSupport, run]);
 
   useEffect(() => {
-    setCategories([]); setVaultTokens([]); setSpends([]); setQuote(undefined); setQuoteFor(undefined); setFeePreview(undefined);
+    setCategories([]); setVaultTokens([]); setSpends([]); setDepositTokens([]); setQuote(undefined); setQuoteFor(undefined); setFeePreview(undefined);
     if (spaceId && role) void refresh();
   }, [refresh, role?.key, spaceId]);
 
@@ -89,7 +105,8 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
   }, [loadSupport, onChanged]);
 
   return {
-    categories, vaultTokens, spends, quote, quoteFor, feePreview, busyAction, notice, error, can,
+    categories, vaultTokens, depositTokens, spends, quote, quoteFor, feePreview, busyAction, notice, error, can,
+    unsupportedTokenRevision,
     roleKey: role?.key, actorUserId, signer, vaults,
     clearError: () => setError(undefined), refresh,
     renameSpace: (name: string) => run("rename-space", async () => { await spaceActionApi.renameSpace(spaceId, name); await changed("Space renamed for every member."); }),

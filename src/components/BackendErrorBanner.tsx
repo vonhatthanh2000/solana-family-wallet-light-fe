@@ -26,7 +26,7 @@ export function BackendErrorBanner() {
         </div>
         <button type="button" className="secondary" onClick={dismiss}>Dismiss</button>
       </div>
-      <p className="recovery-hint">{backendRecoveryHint(failure.status)}</p>
+      <p className="recovery-hint">{backendRecoveryHint(failure.status, failure.code)}</p>
       <dl className="compact-details">
         <div><dt>Request</dt><dd className="mono wrap">{failure.request.method} {failure.request.path}</dd></div>
         <div><dt>Time</dt><dd>{new Date(failure.at).toLocaleTimeString()}</dd></div>

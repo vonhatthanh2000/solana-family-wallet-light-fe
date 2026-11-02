@@ -1,4 +1,5 @@
-export function backendRecoveryHint(status: number): string {
+export function backendRecoveryHint(status: number, code?: string): string {
+  if (code === "UNSUPPORTED_TOKEN") return "Refresh the supported-token list and choose another token. Keep the amount and destination only after reviewing them.";
   if (status === 400) return "Review the submitted values below, correct them, and try again.";
   if (status === 401) return "The JWT is missing or expired. Enter a fresh token and retry.";
   if (status === 403) return "Your current role or membership no longer permits this action. Refresh the Space and role state.";

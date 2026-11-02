@@ -65,4 +65,73 @@ describe("Space deposits", () => {
     expect(transaction.instructions).toHaveLength(1);
     expect(SystemInstruction.decodeTransfer(transaction.instructions[0]!).lamports).toBe(1_250_000_000n);
   });
+
+  it("uses only the backend-returned SPL deposit ATA and never creates or derives one", async () => {
+    const sender = Keypair.generate();
+    const space = Keypair.generate().publicKey;
+    const mint = Keypair.generate().publicKey;
+    const backendAta = Keypair.generate().publicKey;
+    const blockhash = Keypair.generate().publicKey.toBase58();
+    const signAndSendTransaction = vi.fn(async (
+      ...args: [Uint8Array, `${string}:${string}`]
+    ) => {
+      void args;
+      return "transaction-signature";
+    });
+    const signer: ConnectedSigner = {
+      address: sender.publicKey.toBase58(), provider: "Test wallet",
+      canSignDigest: true, canSignTransaction: true,
+      publicKeyBytes: () => sender.publicKey.toBytes(), signDigest32: vi.fn(),
+      signAndSendTransaction,
+    };
+
+    const result = await sendDeposit({
+      signer,
+      spaceAddress: space.toBase58(),
+      chainId: "devnet",
+      fallbackNetwork: "devnet",
+      amount: "2.5",
+      token: {
+        tokenAddress: mint.toBase58(),
+        symbol: "dUSDT",
+        decimals: 6,
+        depositAddress: backendAta.toBase58(),
+      },
+      rpcUrl: "https://rpc.example.test",
+      connection: { getLatestBlockhash: vi.fn(async () => ({ blockhash, lastValidBlockHeight: 1 })) } as never,
+    });
+
+    expect(result.destinationAddress).toBe(backendAta.toBase58());
+    const transaction = Transaction.from(signAndSendTransaction.mock.calls[0]![0]);
+    expect(transaction.instructions).toHaveLength(1);
+    expect(transaction.instructions[0]!.keys[2]!.pubkey.toBase58()).toBe(backendAta.toBase58());
+  });
+
+  it("refuses to describe or use a backend ATA that is not ready", async () => {
+    const sender = Keypair.generate();
+    const signer: ConnectedSigner = {
+      address: sender.publicKey.toBase58(), provider: "Test wallet",
+      canSignDigest: true, canSignTransaction: true,
+      publicKeyBytes: () => sender.publicKey.toBytes(), signDigest32: vi.fn(),
+      signAndSendTransaction: vi.fn(),
+    };
+
+    await expect(sendDeposit({
+      signer,
+      spaceAddress: Keypair.generate().publicKey.toBase58(),
+      chainId: "devnet",
+      fallbackNetwork: "devnet",
+      amount: "1",
+      token: {
+        tokenAddress: Keypair.generate().publicKey.toBase58(),
+        symbol: "dUSDT",
+        decimals: 6,
+        depositAddress: Keypair.generate().publicKey.toBase58(),
+        isReady: false,
+      },
+      rpcUrl: "https://rpc.example.test",
+      connection: { getLatestBlockhash: vi.fn() } as never,
+    })).rejects.toThrow(/does not exist/);
+    expect(signer.signAndSendTransaction).not.toHaveBeenCalled();
+  });
 });

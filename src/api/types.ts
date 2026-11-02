@@ -87,6 +87,20 @@ export type SpaceChainDto = {
 export type DepositAddressesResponse = {
   spaceId: `0x${string}`;
   chains: SpaceChainDto[];
+  tokenDepositAddresses: TokenDepositAddressDto[];
+};
+
+export type TokenDepositAddressDto = {
+  tokenId: string;
+  chainObjectId: string;
+  chainId: string;
+  chainType: "SOL";
+  name: string;
+  symbol: string;
+  decimals: number;
+  mint: string;
+  address: string;
+  isReady: boolean;
 };
 
 export type ActivationResponse = {
@@ -211,4 +225,71 @@ export function parseSolanaOpenPayload(value: unknown): SolanaOpenPayload {
 export function asRecord(value: unknown, label: string): Record<string, unknown> {
   if (!isRecord(value)) throw new Error(`${label} response must be an object`);
   return value;
+}
+
+function parseDepositToken(
+  value: unknown,
+  index: number,
+  chainDefaults: Partial<SpaceChainDto> = {},
+): TokenDepositAddressDto {
+  const row = asRecord(value, `tokenDepositAddresses[${index}]`);
+  const metadata = isRecord(row.token) ? row.token : row;
+  const chainType = row.chainType ?? metadata.chainType ?? chainDefaults.chainType;
+  if (chainType !== "SOL") throw new Error(`tokenDepositAddresses[${index}].chainType must be SOL`);
+  const decimals = requireFiniteNumber(row.decimals ?? metadata.decimals, `tokenDepositAddresses[${index}].decimals`);
+  if (!Number.isInteger(decimals) || decimals < 0) throw new Error(`tokenDepositAddresses[${index}].decimals must be a non-negative integer`);
+  const mint = requireString(
+    row.mint ?? row.tokenAddress ?? metadata.mint ?? metadata.tokenAddress ?? metadata.address,
+    `tokenDepositAddresses[${index}].mint`,
+  );
+  const symbol = requireString(row.symbol ?? metadata.symbol, `tokenDepositAddresses[${index}].symbol`);
+  return {
+    tokenId: requireString(row.tokenId ?? metadata.tokenId ?? metadata._id ?? metadata.id ?? mint, `tokenDepositAddresses[${index}].tokenId`),
+    chainObjectId: requireString(row.chainObjectId ?? metadata.chainObjectId ?? chainDefaults.chainObjectId, `tokenDepositAddresses[${index}].chainObjectId`),
+    chainId: requireString(row.chainId ?? metadata.chainId ?? chainDefaults.chainId, `tokenDepositAddresses[${index}].chainId`),
+    chainType: "SOL",
+    name: typeof (row.name ?? metadata.name) === "string" && String(row.name ?? metadata.name).trim() ? String(row.name ?? metadata.name) : symbol,
+    symbol,
+    decimals,
+    mint,
+    address: requireString(row.address ?? row.ata ?? row.depositAddress, `tokenDepositAddresses[${index}].address`),
+    isReady: row.isReady === true || row.exists === true || row.ataExists === true || row.isInitialized === true || row.status === "ready",
+  };
+}
+
+function depositRows(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (isRecord(value)) return Object.values(value);
+  return [];
+}
+
+export function parseDepositAddressesResponse(value: unknown): DepositAddressesResponse {
+  const row = asRecord(value, "Deposit-addresses");
+  if (!Array.isArray(row.chains)) throw new Error("Deposit-addresses response is missing its chains array");
+  const chains = row.chains.map((value, index) => {
+    const chain = asRecord(value, `Deposit-addresses.chains[${index}]`);
+    return {
+      chainObjectId: requireString(chain.chainObjectId ?? chain._id, `chains[${index}].chainObjectId`),
+      chainId: requireString(chain.chainId, `chains[${index}].chainId`),
+      chainType: requireString(chain.chainType, `chains[${index}].chainType`),
+      address: chain.address === null || chain.address === undefined ? null : requireString(chain.address, `chains[${index}].address`),
+      isDeployed: chain.isDeployed === true,
+      deployState: chain.deployState === "pending" || chain.deployState === "failed" ? chain.deployState : undefined,
+      deployError: typeof chain.deployError === "string" ? chain.deployError : undefined,
+    } satisfies SpaceChainDto;
+  });
+  const topLevel = depositRows(row.tokenDepositAddresses);
+  const nested = row.chains.flatMap((value, chainIndex) => {
+    const chain = asRecord(value, `Deposit-addresses.chains[${chainIndex}]`);
+    return depositRows(chain.tokenDepositAddresses).map((token) => ({ token, defaults: chains[chainIndex] }));
+  });
+  const tokenDepositAddresses = [
+    ...topLevel.map((token) => ({ token, defaults: {} })),
+    ...nested,
+  ].map(({ token, defaults }, index) => parseDepositToken(token, index, defaults));
+  return {
+    spaceId: requireString(row.spaceId, "spaceId") as `0x${string}`,
+    chains,
+    tokenDepositAddresses,
+  };
 }

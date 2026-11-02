@@ -75,12 +75,13 @@ export function parseVaultTokenOptions(value: unknown): VaultTokenOptionDto[] {
   if (!Array.isArray(value)) throw new Error("vault tokens response must be an array");
   return value.map((item, index) => {
     const row = asRecord(item, `vault tokens[${index}]`);
+    const isNative = row.isNative === true;
     return {
       tokenId: text(row.tokenId, "vault token.tokenId"), name: text(row.name, "vault token.name"),
       symbol: text(row.symbol, "vault token.symbol"), decimals: number(row.decimals, "vault token.decimals"),
       logoURI: typeof row.logoURI === "string" ? row.logoURI : undefined,
-      tokenAddress: typeof row.tokenAddress === "string" ? row.tokenAddress : "",
-      isNative: row.isNative === true, chainObjectId: text(row.chainObjectId, "vault token.chainObjectId"),
+      tokenAddress: isNative ? (typeof row.tokenAddress === "string" ? row.tokenAddress : "") : text(row.tokenAddress, "vault token.tokenAddress"),
+      isNative, chainObjectId: text(row.chainObjectId, "vault token.chainObjectId"),
       chainId: text(row.chainId, "vault token.chainId"), chainType: text(row.chainType, "vault token.chainType"),
       chainName: text(row.chainName, "vault token.chainName"), network: text(row.network, "vault token.network"),
     };

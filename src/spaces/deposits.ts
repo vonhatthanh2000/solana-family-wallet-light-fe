@@ -1,7 +1,5 @@
 import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
-  createAssociatedTokenAccountIdempotentInstruction,
   createTransferCheckedInstruction,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
@@ -19,6 +17,8 @@ export type DepositToken = {
   tokenAddress: string;
   symbol: string;
   decimals: number;
+  depositAddress: string;
+  isReady?: boolean;
 };
 
 export type DepositResult = {
@@ -93,19 +93,12 @@ export async function sendDeposit(input: {
   let baseUnits: bigint;
 
   if (token) {
+    if (token.isReady === false) throw new Error(`${token.symbol} deposits are not ready because the backend-reported ATA does not exist`);
     baseUnits = decimalToBaseUnits(input.amount, token.decimals);
     const mint = new PublicKey(token.tokenAddress);
     const sourceAta = getAssociatedTokenAddressSync(mint, sender);
-    const destinationAta = getAssociatedTokenAddressSync(mint, space, true);
+    const destinationAta = new PublicKey(token.depositAddress);
     destinationAddress = destinationAta.toBase58();
-    transaction.add(createAssociatedTokenAccountIdempotentInstruction(
-      sender,
-      destinationAta,
-      space,
-      mint,
-      TOKEN_PROGRAM_ID,
-      ASSOCIATED_TOKEN_PROGRAM_ID,
-    ));
     transaction.add(createTransferCheckedInstruction(
       sourceAta,
       mint,

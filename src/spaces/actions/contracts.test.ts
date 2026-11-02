@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCategories, parseMoneyQuote, parseSpends } from "./contracts";
+import { parseCategories, parseMoneyQuote, parseSpends, parseVaultTokenOptions } from "./contracts";
 
 describe("Space action contracts", () => {
   it("accepts either public id spelling for categories", () => {
@@ -25,5 +25,17 @@ describe("Space action contracts", () => {
       vaultId: null, requiredApprovals: 1, approverIds: ["owner"], declinerIds: [],
       readyToSend: false, send: null, txHash: "transaction",
     }])[0]?.action.amount).toBe(amount);
+  });
+
+  it("keeps backend dUSDT metadata available even when the Space hides the asset", () => {
+    const tokens = parseVaultTokenOptions([{
+      tokenId: "dusdt", name: "Devnet USDT", symbol: "dUSDT", decimals: 6,
+      tokenAddress: "Ex6Bkm2vTVmrbdn74iYjigzpVYhPjoxQVEnBPm9MEP7F", isNative: false,
+      chainObjectId: "sol-record", chainId: "devnet", chainType: "SOL",
+      chainName: "Solana Devnet", network: "devnet", isHidden: true,
+    }]);
+
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toMatchObject({ symbol: "dUSDT", tokenAddress: "Ex6Bkm2vTVmrbdn74iYjigzpVYhPjoxQVEnBPm9MEP7F" });
   });
 });

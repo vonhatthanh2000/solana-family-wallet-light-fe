@@ -1,6 +1,6 @@
 import { apiRequest } from "./client";
 import {
-  asRecord,
+  parseDepositAddressesResponse,
   parseSolanaOpenPayload,
   type ActivationResponse,
   type ChainListResponse,
@@ -115,14 +115,10 @@ export function activateSolana(
 }
 
 export async function getDepositAddresses(spaceId: string): Promise<DepositAddressesResponse> {
-  const response = await apiRequest<DepositAddressesResponse>(
+  const response = await apiRequest<unknown>(
     `/family-wallet/spaces/${encodeURIComponent(spaceId)}/deposit-addresses`,
   );
-  const record = asRecord(response, "Deposit-addresses");
-  if (!Array.isArray(record.chains)) {
-    throw new Error("Deposit-addresses response is missing its chains array");
-  }
-  return response;
+  return parseDepositAddressesResponse(response);
 }
 
 export function extractSolanaPayload(response: CreateSpaceResponse): SolanaOpenPayload | undefined {

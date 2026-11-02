@@ -5,6 +5,7 @@ import {
   createSpace,
   createWalletGroup,
   extractSolanaPayload,
+  getDepositAddresses,
   getSolanaPayload,
   getWalletGroups,
   getWallets,
@@ -130,6 +131,33 @@ describe("endpoint serialization", () => {
         skipped: [],
       },
     })).toEqual(canonicalSolanaPayload);
+  });
+
+  it("parses backend-supported dUSDT metadata and its exact deposit ATA", async () => {
+    const response = {
+      spaceId: `0x${"44".repeat(32)}`,
+      chains: [{
+        chainObjectId: "sol-record", chainId: "devnet", chainType: "SOL",
+        address: "space-pda", isDeployed: true,
+        tokenDepositAddresses: [{
+          token: {
+            _id: "dusdt-token", name: "Devnet USDT", symbol: "dUSDT", decimals: 6,
+            address: "Ex6Bkm2vTVmrbdn74iYjigzpVYhPjoxQVEnBPm9MEP7F",
+          },
+          depositAddress: "backend-derived-ata", ataExists: true,
+        }],
+      }],
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(response)));
+
+    await expect(getDepositAddresses(response.spaceId)).resolves.toMatchObject({
+      tokenDepositAddresses: [{
+        symbol: "dUSDT",
+        mint: "Ex6Bkm2vTVmrbdn74iYjigzpVYhPjoxQVEnBPm9MEP7F",
+        address: "backend-derived-ata",
+        isReady: true,
+      }],
+    });
   });
 
   it("attaches the failed Create Space request body to a 400 error", async () => {

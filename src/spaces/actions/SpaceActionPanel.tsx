@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { CopyButton } from "../../components/CopyButton";
 import type { FamilyRoleDto, MemberSendDto } from "../../members/contracts";
 import type { ConnectedSigner } from "../../solana/signers/types";
@@ -9,6 +9,7 @@ import type { SpacePermission, SpendDto } from "./contracts";
 import { SignaturePrompt } from "../signing/SignaturePrompt";
 import { pendingSignatures, type SignatureItem } from "../signing/signature-queue";
 import { useSpaceActions } from "./useSpaceActions";
+import { vaultsForSupportedToken } from "./token-selection";
 
 type Props = {
   dashboard: SpaceDashboard;
@@ -59,7 +60,9 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
     () => actions.vaultTokens.filter((token) => token.chainId === spendChainId),
     [actions.vaultTokens, spendChainId],
   );
-  const selectedSpendToken = chainTokens.find((token) => token.tokenAddress === spendToken);
+  const selectedSpendToken = chainTokens.find((token) => (
+    spendToken === "native" ? token.isNative : !token.isNative && token.tokenAddress === spendToken
+  ));
   const spendDecimals = spendToken === "native" ? 9 : selectedSpendToken?.decimals;
   const spendSymbol = spendToken === "native" ? "SOL" : selectedSpendToken?.symbol ?? "Token";
   const actorMember = dashboard.members.members.find((member) => member.userId === actorUserId);
@@ -95,9 +98,7 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
     event.preventDefault();
     operation();
   };
-  const tokenVaults = spendToken === "native"
-    ? dashboard.vaults.filter((vault) => vault.token.chainId === spendChainId && vault.token.symbol !== "USDT")
-    : dashboard.vaults.filter((vault) => vault.token.chainId === spendChainId && vault.token.symbol === selectedSpendToken?.symbol);
+  const tokenVaults = vaultsForSupportedToken(dashboard.vaults, spendChainId, selectedSpendToken);
   const sourceVaults = actions.roleKey === "CHILD"
     ? tokenVaults.filter((vault) => actorMember?.spendVaultIds.includes(vault.vaultId))
     : tokenVaults;
@@ -135,6 +136,12 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
   };
   const resetSpendAmounts = () => { setSpendDisplayAmount(""); setSpendAmount(""); };
 
+  useEffect(() => {
+    if (!actions.unsupportedTokenRevision) return;
+    setVaultTokenId("");
+    setSpendToken("");
+  }, [actions.unsupportedTokenRevision]);
+
   return (
     <section className="space-actions" aria-labelledby="space-actions-title">
       <div className="section-heading">
@@ -159,7 +166,7 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
 
       <DepositPanel
         chain={dashboard.space.chains.find((chain) => chain.chainType === "SOL")}
-        tokens={actions.vaultTokens}
+        tokenDepositAddresses={actions.depositTokens}
         signer={signer}
         fallbackNetwork={fallbackNetwork}
         onSettled={onChanged}
@@ -225,14 +232,14 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
           <h3>Propose external spend</h3><p>Amount is the smallest-unit integer: lamports for SOL or mint base units for SPL. A proposal does not move money.</p>
           <form className="action-grid spend-form" onSubmit={submit(() => void actions.proposeSpend({ chainId: spendChainId, token: spendToken, amount: spendAmount, destination, ...(spendVaultId ? { vaultId: spendVaultId } : {}), ...(spendCategoryId ? { categoryId: spendCategoryId } : {}), ...(spendNote ? { note: spendNote } : {}) }))}>
             <label>Chain<select value={spendChainId} onChange={(event) => { setSpendChainId(event.target.value); setSpendToken("native"); resetSpendAmounts(); }}><option value="">Select chain</option>{dashboard.space.chains.filter((chain) => chain.isDeployed).map((chain) => <option key={chain.chainObjectId} value={chain.chainId}>{chain.chainType} · {chain.chainId}</option>)}</select></label>
-            <label>Token<select value={spendToken} onChange={(event) => { setSpendToken(event.target.value); resetSpendAmounts(); }}><option value="native">Native coin</option>{chainTokens.filter((token) => !token.isNative).map((token) => <option key={token.tokenId} value={token.tokenAddress}>{token.symbol}</option>)}</select></label>
+            <label>Token<select value={spendToken} onChange={(event) => { setSpendToken(event.target.value); resetSpendAmounts(); }}><option value="">Choose an available token</option><option value="native">Native coin</option>{chainTokens.filter((token) => !token.isNative).map((token) => <option key={token.tokenId} value={token.tokenAddress}>{token.symbol}</option>)}</select></label>
             <label>{spendSymbol} amount<input inputMode="decimal" placeholder={spendToken === "native" ? "0.1" : "1.0"} value={spendDisplayAmount} onChange={(event) => changeSpendDisplayAmount(event.target.value)} /></label>
             <label>{spendToken === "native" ? "Lamports" : "Base units"}<input inputMode="numeric" pattern="[1-9][0-9]*" value={spendAmount} onChange={(event) => changeSpendBaseUnits(event.target.value)} /></label>
             <label>Destination<input className="mono" value={destination} onChange={(event) => setDestination(event.target.value)} /></label>
             <label>Source<select value={spendVaultId} onChange={(event) => setSpendVaultId(event.target.value)}><option value="">{actions.roleKey === "CHILD" ? "Select assigned Vault" : "Shared Wallet"}</option>{sourceVaults.map((vault) => <option value={vault.vaultId} key={vault.vaultId}>{vault.name}</option>)}</select></label>
             <label>Category<select value={spendCategoryId} onChange={(event) => setSpendCategoryId(event.target.value)}><option value="">No category</option>{actions.categories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label>
             <label>Note<input maxLength={60} value={spendNote} onChange={(event) => setSpendNote(event.target.value)} /></label>
-            <div className="button-row"><button type="button" className="secondary" disabled={busy || !spendChainId} onClick={() => void actions.previewSpendFee(spendChainId)}>Preview fee</button><button disabled={busy || !spendChainId || !/^[1-9]\d*$/.test(spendAmount) || !destination || (actions.roleKey === "CHILD" && !spendVaultId)}>Propose spend</button></div>
+            <div className="button-row"><button type="button" className="secondary" disabled={busy || !spendChainId} onClick={() => void actions.previewSpendFee(spendChainId)}>Preview fee</button><button disabled={busy || !spendChainId || !spendToken || !/^[1-9]\d*$/.test(spendAmount) || !destination || (actions.roleKey === "CHILD" && !spendVaultId)}>Propose spend</button></div>
           </form>
           {actions.feePreview && <div className="result warning"><strong>Network fee preview</strong><pre>{JSON.stringify(actions.feePreview, null, 2)}</pre></div>}
         </div>
