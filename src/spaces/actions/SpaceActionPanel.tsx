@@ -8,6 +8,7 @@ import { baseUnitsToDecimal, decimalToBaseUnits } from "../deposits";
 import type { SpacePermission, SpendDto } from "./contracts";
 import { SignaturePrompt } from "../signing/SignaturePrompt";
 import { pendingSignatures, type SignatureItem } from "../signing/signature-queue";
+import { SpendReserveNotice } from "./SpendReserveNotice";
 import { useSpaceActions } from "./useSpaceActions";
 import { vaultsForSupportedToken } from "./token-selection";
 
@@ -56,6 +57,9 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
   const [spendCategoryId, setSpendCategoryId] = useState("");
   const [spendNote, setSpendNote] = useState("");
   const busy = Boolean(actions.busyAction);
+  const solChain = dashboard.space.chains.find((chain) => chain.chainType === "SOL" && chain.isDeployed);
+  // Until the Space holds its reserve, Solana propose and execute are refused on arrival.
+  const reserveBlocksSolana = Boolean(actions.solReserve) && (!spendChainId || spendChainId === solChain?.chainId);
   const chainTokens = useMemo(
     () => actions.vaultTokens.filter((token) => token.chainId === spendChainId),
     [actions.vaultTokens, spendChainId],
@@ -165,6 +169,7 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
       {dashboard.space.memberChangeInProgress && <div className="result warning">A member change is reaching the chains. Actions sharing the Space nonce may queue or be refused until it settles.</div>}
 
       <DepositPanel
+        spaceId={dashboard.space.spaceId}
         chain={dashboard.space.chains.find((chain) => chain.chainType === "SOL")}
         tokenDepositAddresses={actions.depositTokens}
         signer={signer}
@@ -230,6 +235,13 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
       {actions.can("SPEND") && (
         <div className="action-group">
           <h3>Propose external spend</h3><p>Amount is the smallest-unit integer: lamports for SOL or mint base units for SPL. A proposal does not move money.</p>
+          {actions.solReserve && <SpendReserveNotice
+            reserve={actions.solReserve}
+            chain={solChain}
+            signer={signer}
+            fallbackNetwork={fallbackNetwork}
+            onFunded={actions.refreshSolReserve}
+          />}
           <form className="action-grid spend-form" onSubmit={submit(() => void actions.proposeSpend({ chainId: spendChainId, token: spendToken, amount: spendAmount, destination, ...(spendVaultId ? { vaultId: spendVaultId } : {}), ...(spendCategoryId ? { categoryId: spendCategoryId } : {}), ...(spendNote ? { note: spendNote } : {}) }))}>
             <label>Chain<select value={spendChainId} onChange={(event) => { setSpendChainId(event.target.value); setSpendToken("native"); resetSpendAmounts(); }}><option value="">Select chain</option>{dashboard.space.chains.filter((chain) => chain.isDeployed).map((chain) => <option key={chain.chainObjectId} value={chain.chainId}>{chain.chainType} · {chain.chainId}</option>)}</select></label>
             <label>Token<select value={spendToken} onChange={(event) => { setSpendToken(event.target.value); resetSpendAmounts(); }}><option value="">Choose an available token</option><option value="native">Native coin</option>{chainTokens.filter((token) => !token.isNative).map((token) => <option key={token.tokenId} value={token.tokenAddress}>{token.symbol}</option>)}</select></label>
@@ -239,7 +251,7 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
             <label>Source<select value={spendVaultId} onChange={(event) => setSpendVaultId(event.target.value)}><option value="">{actions.roleKey === "CHILD" ? "Select assigned Vault" : "Shared Wallet"}</option>{sourceVaults.map((vault) => <option value={vault.vaultId} key={vault.vaultId}>{vault.name}</option>)}</select></label>
             <label>Category<select value={spendCategoryId} onChange={(event) => setSpendCategoryId(event.target.value)}><option value="">No category</option>{actions.categories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label>
             <label>Note<input maxLength={60} value={spendNote} onChange={(event) => setSpendNote(event.target.value)} /></label>
-            <div className="button-row"><button type="button" className="secondary" disabled={busy || !spendChainId} onClick={() => void actions.previewSpendFee(spendChainId)}>Preview fee</button><button disabled={busy || !spendChainId || !spendToken || !/^[1-9]\d*$/.test(spendAmount) || !destination || (actions.roleKey === "CHILD" && !spendVaultId)}>Propose spend</button></div>
+            <div className="button-row"><button type="button" className="secondary" disabled={busy || !spendChainId} onClick={() => void actions.previewSpendFee(spendChainId)}>Preview fee</button><button disabled={busy || reserveBlocksSolana || !spendChainId || !spendToken || !/^[1-9]\d*$/.test(spendAmount) || !destination || (actions.roleKey === "CHILD" && !spendVaultId)}>Propose spend</button></div>
           </form>
           {actions.feePreview && <div className="result warning"><strong>Network fee preview</strong><pre>{JSON.stringify(actions.feePreview, null, 2)}</pre></div>}
         </div>
@@ -264,6 +276,8 @@ function SpendActionCard({ spend, actions, busy }: { spend: SpendDto; actions: R
   const mine = spend.proposedBy === actions.actorUserId;
   const voted = Boolean(actions.actorUserId && spend.approverIds.includes(actions.actorUserId));
   const open = ["open", "queued", "signing"].includes(spend.status);
+  // Executing is what actually spends, so a short reserve refuses it however the spend got here.
+  const reserveShort = spend.chainType === "SOL" && Boolean(actions.solReserve);
   const [categoryId, setCategoryId] = useState(spend.categoryId ?? "");
   return (
     <article className="request-card">
@@ -273,10 +287,11 @@ function SpendActionCard({ spend, actions, busy }: { spend: SpendDto; actions: R
       <div className="button-row">
         {actions.can("VOTE") && !mine && !voted && spend.status === "open" && <button disabled={busy} onClick={() => void actions.approveSpend(spend)}>Sign approval</button>}
         {actions.can("VOTE") && !mine && spend.status === "open" && <button className="danger" disabled={busy} onClick={() => void actions.declineSpend(spend.spendId)}>Decline</button>}
-        {mine && spend.readyToSend && open && <button disabled={busy} onClick={() => void actions.executeSpend(spend)}>Sign and execute</button>}
+        {mine && spend.readyToSend && open && <button disabled={busy || reserveShort} onClick={() => void actions.executeSpend(spend)}>Sign and execute</button>}
         {(mine || actions.roleKey === "OWNER") && spend.status === "open" && <button className="secondary" disabled={busy} onClick={() => void actions.cancelSpend(spend.spendId)}>Cancel</button>}
       </div>
       {actions.can("MANAGE_ASSETS") && <div className="button-row"><select aria-label="Spend category" value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">No category</option>{actions.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select><button className="secondary" disabled={busy || categoryId === (spend.categoryId ?? "")} onClick={() => void actions.setSpendCategory(spend.spendId, categoryId || null)}>Save category</button></div>}
+      {reserveShort && open && <p className="hint">Waiting on the Space's SOL reserve — deposit SOL above before executing.</p>}
       {spend.txHash && <span className="copyable"><code className="wrap">Broadcast: {spend.txHash} (not final until executed)</code><CopyButton value={spend.txHash} label="spend transaction hash" /></span>}
     </article>
   );

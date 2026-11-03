@@ -6,10 +6,12 @@ import {
   createWalletGroup,
   extractSolanaPayload,
   getDepositAddresses,
+  getSolanaDepositFee,
   getSolanaPayload,
   getWalletGroups,
   getWallets,
   registerWallet,
+  reportSendTransaction,
 } from "./endpoints";
 import { canonicalSolanaPayload } from "./solanaPayload.fixture";
 import type { DebugEvent } from "./types";
@@ -157,6 +159,108 @@ describe("endpoint serialization", () => {
         address: "backend-derived-ata",
         isReady: true,
       }],
+    });
+  });
+
+  it("quotes one token's deposit cost and keeps every lamport figure a string", async () => {
+    const quote = {
+      tokenId: "698161a631fcd4a91bf994c4",
+      mint: "Es9vMFrzaCER",
+      decimals: 6,
+      destination: "space-ata",
+      ataExists: false,
+      fees: {
+        transactionFeeLamports: "5000", rentLamports: "2039280", totalLamports: "2044280",
+        transactionFeeSol: "0.000005", rentSol: "0.00203928", totalSol: "0.00204428",
+      },
+      sender: "sender-wallet",
+      senderLamports: "1500000",
+      shortfallLamports: "544280",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(quote));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const parsed = await getSolanaDepositFee("space/id", "698161a631fcd4a91bf994c4");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://api.example.test/family-wallet/spaces/space%2Fid/solana/deposit-fee?tokenId=698161a631fcd4a91bf994c4",
+    );
+    // The *Sol display strings are dropped on purpose: SOL is formatted from lamports everywhere.
+    expect(parsed).toEqual({
+      tokenId: "698161a631fcd4a91bf994c4",
+      mint: "Es9vMFrzaCER",
+      decimals: 6,
+      destination: "space-ata",
+      ataExists: false,
+      fees: { transactionFeeLamports: "5000", rentLamports: "2039280", totalLamports: "2044280" },
+      sender: "sender-wallet",
+      senderLamports: "1500000",
+      shortfallLamports: "544280",
+    });
+  });
+
+  it("rejects a deposit quote whose costs are not smallest-unit integers", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
+      tokenId: "token", mint: "mint", decimals: 6, destination: "ata", ataExists: false,
+      fees: { transactionFeeLamports: "5000", rentLamports: "0.00203928", totalLamports: "2044280" },
+      sender: "sender", senderLamports: "1500000", shortfallLamports: "0",
+    })));
+
+    await expect(getSolanaDepositFee("space", "token")).rejects.toThrow(
+      "fees.rentLamports must be a smallest-unit integer string",
+    );
+  });
+
+  it("keeps rentLamports a smallest-unit string and leaves an unreadable one undefined", async () => {
+    const response = {
+      spaceId: `0x${"44".repeat(32)}`,
+      chains: [{
+        chainObjectId: "sol-record", chainId: "devnet", chainType: "SOL",
+        address: "space-pda", isDeployed: true,
+        tokenDepositAddresses: [
+          { tokenId: "new", symbol: "dUSDT", decimals: 6, mint: "mint-a", address: "ata-a", isReady: false, rentLamports: "2039280" },
+          { tokenId: "open", symbol: "dUSDC", decimals: 6, mint: "mint-b", address: "ata-b", isReady: true, rentLamports: "0" },
+          { tokenId: "unknown", symbol: "dBONK", decimals: 5, mint: "mint-c", address: "ata-c", isReady: false },
+        ],
+      }],
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(response)));
+
+    const parsed = await getDepositAddresses(response.spaceId);
+    expect(parsed.tokenDepositAddresses.map((token) => token.rentLamports)).toEqual([
+      "2039280",
+      "0",
+      undefined,
+    ]);
+  });
+
+  it("reports a broadcast deposit to the user's own off-chain history as a SEND", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await reportSendTransaction({
+      chainId: "sol-record",
+      txHash: "signature",
+      from: "sender",
+      to: "space-ata",
+      amount: "2.5",
+      coin: "TOKEN",
+      tokenAddress: "mint",
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.example.test/offchain/transaction/create-send-tx");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    // The chain document id, the literal TOKEN coin, and whole units — not the transfer's own values.
+    expect(JSON.parse(String(init.body))).toEqual({
+      chainId: "sol-record",
+      txHash: "signature",
+      txType: "SEND",
+      from: "sender",
+      to: "space-ata",
+      amount: "2.5",
+      coin: "TOKEN",
+      tokenAddress: "mint",
     });
   });
 

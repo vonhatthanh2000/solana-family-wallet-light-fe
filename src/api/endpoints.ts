@@ -1,11 +1,13 @@
 import { apiRequest } from "./client";
 import {
   parseDepositAddressesResponse,
+  parseSolanaDepositFeeQuote,
   parseSolanaOpenPayload,
   type ActivationResponse,
   type ChainListResponse,
   type CreateSpaceResponse,
   type DepositAddressesResponse,
+  type SolanaDepositFeeQuote,
   type SolanaOpenPayload,
   type WalletDto,
   type WalletGroupDto,
@@ -119,6 +121,47 @@ export async function getDepositAddresses(spaceId: string): Promise<DepositAddre
     `/family-wallet/spaces/${encodeURIComponent(spaceId)}/deposit-addresses`,
   );
   return parseDepositAddressesResponse(response);
+}
+
+/**
+ * Prices the next deposit of one SPL token before the user commits to it. Re-read it when the screen
+ * has been open a while or after a failed send: `ataExists` can flip, which changes the price.
+ */
+export async function getSolanaDepositFee(spaceId: string, tokenId: string): Promise<SolanaDepositFeeQuote> {
+  const response = await apiRequest<unknown>(
+    `/family-wallet/spaces/${encodeURIComponent(spaceId)}/solana/deposit-fee?tokenId=${encodeURIComponent(tokenId)}`,
+  );
+  return parseSolanaDepositFeeQuote(response);
+}
+
+export type SendTransactionReport = {
+  /**
+   * The chain *document* id — chainObjectId from the deposit-addresses response, not the network
+   * chain id. Sending the network id is rejected with a 400 naming the field.
+   */
+  chainId: string;
+  txHash: string;
+  from: string;
+  to: string;
+  /**
+   * Whole units as a decimal string ("100"), unlike the transaction itself, which uses smallest
+   * units. Still a string: never parseFloat it.
+   */
+  amount: string;
+  /** The literal "TOKEN" for any SPL transfer, with tokenAddress carrying the mint; else the native coin. */
+  coin: "TOKEN" | (string & {});
+  tokenAddress?: string;
+};
+
+/**
+ * Records a broadcast transfer in the user's own off-chain history. The Space ledger is credited by
+ * the chain scanner regardless, so a failure here never means a lost deposit.
+ */
+export function reportSendTransaction(report: SendTransactionReport): Promise<unknown> {
+  return apiRequest<unknown>("/offchain/transaction/create-send-tx", {
+    method: "POST",
+    body: JSON.stringify({ ...report, txType: "SEND" }),
+  });
 }
 
 export function extractSolanaPayload(response: CreateSpaceResponse): SolanaOpenPayload | undefined {

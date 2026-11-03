@@ -100,7 +100,41 @@ export type TokenDepositAddressDto = {
   decimals: number;
   mint: string;
   address: string;
+  /** Informational only: nothing blocks on it, the deposit transaction opens the ATA when needed. */
   isReady: boolean;
+  /**
+   * Smallest-unit rent the next deposit of this mint pays to open the ATA. "0" once isReady is
+   * true, and undefined when the backend could not reach the chain — undefined means unknown,
+   * never free.
+   */
+  rentLamports?: string;
+};
+
+/**
+ * `GET /:spaceId/solana/deposit-fee?tokenId=...` — what the next deposit of one SPL token costs the
+ * depositing wallet. Takes no amount: neither cost depends on it.
+ *
+ * The response also carries `fees.*Sol` display strings. They are deliberately not kept: every SOL
+ * figure in the UI is formatted from the lamport value, so the two can never disagree.
+ */
+export type SolanaDepositFeeQuote = {
+  tokenId: string;
+  mint: string;
+  decimals: number;
+  /** The Space ATA this deposit must land in. */
+  destination: string;
+  /** False means this deposit opens the account and pays its rent. */
+  ataExists: boolean;
+  fees: {
+    transactionFeeLamports: string;
+    /** "0" when ataExists. A failed RPC read is an error upstream, never a zero cost. */
+    rentLamports: string;
+    totalLamports: string;
+  };
+  sender: string;
+  senderLamports: string;
+  /** "0" when the sender's wallet covers the total. Anything else must block the deposit. */
+  shortfallLamports: string;
 };
 
 export type ActivationResponse = {
@@ -222,6 +256,42 @@ export function parseSolanaOpenPayload(value: unknown): SolanaOpenPayload {
   };
 }
 
+/** Keeps a smallest-unit value as a digit string; undefined when absent or unusable (unknown). */
+export function optionalBaseUnits(value: unknown): string | undefined {
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) return value.trim();
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) return String(value);
+  if (typeof value === "bigint" && value >= 0n) return value.toString();
+  return undefined;
+}
+
+function requireBaseUnits(value: unknown, field: string): string {
+  const units = optionalBaseUnits(value);
+  if (units === undefined) throw new Error(`${field} must be a smallest-unit integer string`);
+  return units;
+}
+
+export function parseSolanaDepositFeeQuote(value: unknown): SolanaDepositFeeQuote {
+  const row = asRecord(value, "Solana deposit-fee");
+  const fees = asRecord(row.fees, "Solana deposit-fee fees");
+  const decimals = requireFiniteNumber(row.decimals, "deposit-fee.decimals");
+  if (!Number.isInteger(decimals) || decimals < 0) throw new Error("deposit-fee.decimals must be a non-negative integer");
+  return {
+    tokenId: requireString(row.tokenId, "deposit-fee.tokenId"),
+    mint: requireString(row.mint, "deposit-fee.mint"),
+    decimals,
+    destination: requireString(row.destination, "deposit-fee.destination"),
+    ataExists: row.ataExists === true,
+    fees: {
+      transactionFeeLamports: requireBaseUnits(fees.transactionFeeLamports, "fees.transactionFeeLamports"),
+      rentLamports: requireBaseUnits(fees.rentLamports, "fees.rentLamports"),
+      totalLamports: requireBaseUnits(fees.totalLamports, "fees.totalLamports"),
+    },
+    sender: requireString(row.sender, "deposit-fee.sender"),
+    senderLamports: requireBaseUnits(row.senderLamports, "deposit-fee.senderLamports"),
+    shortfallLamports: requireBaseUnits(row.shortfallLamports, "deposit-fee.shortfallLamports"),
+  };
+}
+
 export function asRecord(value: unknown, label: string): Record<string, unknown> {
   if (!isRecord(value)) throw new Error(`${label} response must be an object`);
   return value;
@@ -254,6 +324,7 @@ function parseDepositToken(
     mint,
     address: requireString(row.address ?? row.ata ?? row.depositAddress, `tokenDepositAddresses[${index}].address`),
     isReady: row.isReady === true || row.exists === true || row.ataExists === true || row.isInitialized === true || row.status === "ready",
+    rentLamports: optionalBaseUnits(row.rentLamports ?? row.rent),
   };
 }
 

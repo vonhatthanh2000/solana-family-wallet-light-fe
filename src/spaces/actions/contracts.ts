@@ -1,4 +1,4 @@
-import { asRecord } from "../../api/types";
+import { asRecord, optionalBaseUnits } from "../../api/types";
 import { parseVaults, type VaultDto } from "../contracts";
 
 export type SpacePermission =
@@ -30,6 +30,22 @@ export type MoneyQuoteDto = {
   reason?: string;
   insufficient?: boolean;
 };
+/**
+ * A Solana Space holds no SOL of its own, so it cannot pay for the first spend out until someone
+ * funds it. The backend reports this on `GET /:spaceId/spend/fee` (only while short) and in the
+ * body of a `RESERVE_TOO_LOW` refusal from propose or execute. Both are the same state.
+ */
+export type SolReserveDto = {
+  /** The Space PDA. Native SOL goes here — never to a token account. */
+  spaceAddress: string;
+  heldLamports: string;
+  neededLamports: string;
+  shortfallLamports: string;
+  /** What to ask the user for: the shortfall plus headroom for roughly coversSpends spends. */
+  topUpLamports: string;
+  coversSpends: number;
+};
+
 export type MoneyResultDto = { outcome: "MOVED" | "REQUESTED"; vault: VaultDto; request?: Record<string, unknown> };
 export type SpendDto = {
   spendId: string;
@@ -62,6 +78,35 @@ const strings = (value: unknown, field: string) => {
   if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
   return value.map((item, index) => text(item, `${field}[${index}]`));
 };
+
+const record = (value: unknown): Record<string, unknown> | undefined => (
+  typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+);
+
+/**
+ * Reads the reserve out of a spend-fee response or an error body, from either place the backend
+ * carries it. Lenient on purpose: this runs on an error path, where throwing would hide the
+ * refusal's own message. A reserve that is not short is no state to report, so it reads as absent.
+ */
+export function solReserveFrom(body: unknown): SolReserveDto | undefined {
+  const row = record(body);
+  const reserve = record(row?.solReserve) ?? record(record(row?.details)?.solReserve);
+  if (!reserve) return undefined;
+  const spaceAddress = reserve.spaceAddress;
+  const shortfallLamports = optionalBaseUnits(reserve.shortfallLamports);
+  const topUpLamports = optionalBaseUnits(reserve.topUpLamports);
+  if (typeof spaceAddress !== "string" || !spaceAddress) return undefined;
+  if (!shortfallLamports || shortfallLamports === "0" || !topUpLamports) return undefined;
+  const coversSpends = reserve.coversSpends;
+  return {
+    spaceAddress,
+    heldLamports: optionalBaseUnits(reserve.heldLamports) ?? "0",
+    neededLamports: optionalBaseUnits(reserve.neededLamports) ?? "0",
+    shortfallLamports,
+    topUpLamports,
+    coversSpends: typeof coversSpends === "number" && Number.isInteger(coversSpends) && coversSpends > 0 ? coversSpends : 0,
+  };
+}
 
 export function parseCategories(value: unknown): SpaceCategoryDto[] {
   if (!Array.isArray(value)) throw new Error("categories response must be an array");

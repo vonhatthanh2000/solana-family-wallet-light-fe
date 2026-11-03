@@ -7,8 +7,10 @@ import { signRawSolanaDigest } from "../../solana/signing";
 import type { ConnectedSigner } from "../../solana/signers/types";
 import type { FamilyRoleDto } from "../../members/contracts";
 import type { SpaceChainDto, VaultDto } from "../contracts";
-import type {
-  MoneyQuoteDto, SpaceCategoryDto, SpacePermission, SpendDto, VaultTokenOptionDto,
+import {
+  solReserveFrom,
+  type MoneyQuoteDto, type SolReserveDto, type SpaceCategoryDto, type SpacePermission,
+  type SpendDto, type VaultTokenOptionDto,
 } from "./contracts";
 import { spaceActionApi, type CreateVaultInput, type SpendInput } from "./space-action-api";
 
@@ -30,6 +32,7 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
   const [quote, setQuote] = useState<MoneyQuoteDto>();
   const [quoteFor, setQuoteFor] = useState<string>();
   const [feePreview, setFeePreview] = useState<Record<string, unknown>>();
+  const [solReserve, setSolReserve] = useState<SolReserveDto>();
   const [busyAction, setBusyAction] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<DiagnosticError>();
@@ -51,6 +54,11 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
         await reloadSupportRef.current?.().catch(() => undefined);
         setUnsupportedTokenRevision((current) => current + 1);
         setNotice("That token is no longer supported. Supported tokens were refreshed; choose another token.");
+      }
+      if (diagnostic.code === "RESERVE_TOO_LOW") {
+        // The balance can drop between the fee read and the attempt, so the refusal is the
+        // authority here: adopt the reserve it carries.
+        setSolReserve(solReserveFrom(diagnostic.raw));
       }
       if (["ROLE_NOT_ALLOWED", "NOT_A_MEMBER", "VAULT_NOT_ALLOWED", "NOT_A_SIGNER"].includes(diagnostic.code ?? "")) {
         void onChanged().catch(() => undefined);
@@ -82,8 +90,28 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
     await run("refresh-actions", loadSupport);
   }, [loadSupport, run]);
 
+  const solChainId = chains.find((chain) => chain.chainType === "SOL" && chain.isDeployed)?.chainId;
+
+  /**
+   * Reads the spend fee purely for its reserve. Deliberately outside run(): this fires on open and
+   * after a top-up, so it must not take the single-flight slot or clear the user's notices. A
+   * failure is silent — propose and execute still surface RESERVE_TOO_LOW themselves.
+   */
+  const refreshSolReserve = useCallback(async () => {
+    if (!spaceId || !solChainId) return;
+    try { setSolReserve(solReserveFrom(await spaceActionApi.getSpendFee(spaceId, solChainId))); }
+    catch { /* leave whatever the last authoritative answer was in place */ }
+  }, [solChainId, spaceId]);
+
+  // Expected on the first spend of every Solana Space, so it is read up front rather than waiting
+  // for the user to be refused.
   useEffect(() => {
-    setCategories([]); setVaultTokens([]); setSpends([]); setDepositTokens([]); setQuote(undefined); setQuoteFor(undefined); setFeePreview(undefined);
+    setSolReserve(undefined);
+    if (role) void refreshSolReserve();
+  }, [refreshSolReserve, role]);
+
+  useEffect(() => {
+    setCategories([]); setVaultTokens([]); setSpends([]); setDepositTokens([]); setQuote(undefined); setQuoteFor(undefined); setFeePreview(undefined); setSolReserve(undefined);
     if (spaceId && role) void refresh();
   }, [refresh, role?.key, spaceId]);
 
@@ -101,12 +129,12 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
 
   const changed = useCallback(async (message: string) => {
     setNotice(message);
-    await Promise.all([onChanged(), loadSupport()]);
-  }, [loadSupport, onChanged]);
+    await Promise.all([onChanged(), loadSupport(), refreshSolReserve()]);
+  }, [loadSupport, onChanged, refreshSolReserve]);
 
   return {
     categories, vaultTokens, depositTokens, spends, quote, quoteFor, feePreview, busyAction, notice, error, can,
-    unsupportedTokenRevision,
+    unsupportedTokenRevision, solReserve, refreshSolReserve,
     roleKey: role?.key, actorUserId, signer, vaults,
     clearError: () => setError(undefined), refresh,
     renameSpace: (name: string) => run("rename-space", async () => { await spaceActionApi.renameSpace(spaceId, name); await changed("Space renamed for every member."); }),
@@ -133,7 +161,8 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
       await changed(result.outcome === "MOVED" ? "Money moved immediately." : "Approval request created.");
     }),
     proposeSpend: (input: SpendInput) => run("propose-spend", async () => { const result = await spaceActionApi.proposeSpend(spaceId, input); await changed(`Spend ${result.spendId} proposed; broadcast has not happened yet.`); }),
-    previewSpendFee: (chainId: string) => run("preview-spend-fee", async () => { const result = await spaceActionApi.getSpendFee(spaceId, chainId); setFeePreview(result); return result; }),
+    // Only a Solana fee response can speak for the reserve: another chain's would read as "funded".
+    previewSpendFee: (chainId: string) => run("preview-spend-fee", async () => { const result = await spaceActionApi.getSpendFee(spaceId, chainId); setFeePreview(result); if (chainId === solChainId) setSolReserve(solReserveFrom(result)); return result; }),
     approveSpend: (spend: SpendDto) => run(`approve-spend:${spend.spendId}`, async () => { if (!signer) throw new Error("Connect the assigned Solana signing wallet first"); if (spend.chainType !== "SOL") throw new Error("This diagnostic client currently signs Solana spends only"); const signature = await signRawSolanaDigest(spend.intent.digest, signer); await spaceActionApi.voteSpend(spaceId, spend.spendId, signature); await changed("Spend approval recorded; no money has moved yet."); }),
     declineSpend: (spendId: string) => run(`decline-spend:${spendId}`, async () => { await spaceActionApi.declineSpend(spaceId, spendId); await changed("Spend declined."); }),
     executeSpend: (spend: SpendDto) => run(`execute-spend:${spend.spendId}`, async () => {
