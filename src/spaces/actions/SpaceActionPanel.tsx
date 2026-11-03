@@ -4,6 +4,7 @@ import type { FamilyRoleDto, MemberSendDto } from "../../members/contracts";
 import type { ConnectedSigner } from "../../solana/signers/types";
 import type { SpaceDashboard } from "../contracts";
 import { DepositPanel } from "../DepositPanel";
+import { WalletBalancesPanel } from "../WalletBalances";
 import { baseUnitsToDecimal, decimalToBaseUnits } from "../deposits";
 import type { SpacePermission, SpendDto } from "./contracts";
 import { SignaturePrompt } from "../signing/SignaturePrompt";
@@ -152,6 +153,13 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
         <div><p className="eyebrow">Role-aware workspace</p><h2 id="space-actions-title">Space actions</h2><p>The backend remains authoritative if membership or on-chain state changes.</p></div>
         <button className="secondary" onClick={() => void actions.refresh()} disabled={busy}>{actions.busyAction === "refresh-actions" ? "Refreshing…" : "Refresh actions"}</button>
       </div>
+
+      <WalletBalancesPanel
+        chain={solChain}
+        signer={signer}
+        tokens={actions.depositTokens}
+        fallbackNetwork={fallbackNetwork}
+      />
 
       <SignaturePrompt
         items={signatureItems}
