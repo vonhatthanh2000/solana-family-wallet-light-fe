@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCategories, parseMoneyQuote, parseSpends, parseVaultTokenOptions, solReserveFrom } from "./contracts";
+import { executionPayload, parseCategories, parseMoneyQuote, parseSpends, parseVaultTokenOptions, solReserveFrom } from "./contracts";
 
 describe("Space action contracts", () => {
   it("accepts either public id spelling for categories", () => {
@@ -68,5 +68,38 @@ describe("Space action contracts", () => {
     // Never guess the destination or the amount to ask for.
     expect(solReserveFrom({ solReserve: { ...reserve, spaceAddress: "" } })).toBeUndefined();
     expect(solReserveFrom({ solReserve: { ...reserve, topUpLamports: "0.0012" } })).toBeUndefined();
+  });
+
+  it("reads one digest to sign, and the rent only when this spend opens the recipient's account", () => {
+    const digest = `0x${"11".repeat(32)}`;
+
+    expect(executionPayload({ status: "signing", send: { digest, signed: {} } })).toEqual({
+      digest, rentLamports: undefined,
+    });
+    expect(executionPayload({ status: "signing", send: { digest, rentLamports: "2039280" } })).toEqual({
+      digest, rentLamports: "2039280",
+    });
+  });
+
+  it("refuses an execution payload it cannot sign", () => {
+    expect(() => executionPayload({ status: "signing", send: {} })).toThrow("missing send.digest");
+    expect(() => executionPayload({ status: "signing" })).toThrow("missing send.digest");
+  });
+
+  it("keeps the spend's rent line only when the backend sends one", () => {
+    const base = {
+      spendId: "spend", chainType: "SOL", chainId: "devnet", status: "open", proposedBy: "owner",
+      action: { token: "native", amount: "1", destination: "destination" },
+      intent: { digest: `0x${"11".repeat(32)}`, signed: {} }, note: null, categoryId: null,
+      vaultId: null, requiredApprovals: 1, approverIds: [], declinerIds: [],
+      readyToSend: false, send: null, txHash: null,
+    };
+
+    expect(parseSpends([{ ...base, networkFee: { amount: "2139280", usd: "0.0004", rentLamports: "2039280" } }])[0]?.networkFee)
+      .toEqual({ amount: "2139280", usd: "0.0004", rentLamports: "2039280" });
+    // amount already includes the rent, so a fee without the field means nothing extra was opened.
+    expect(parseSpends([{ ...base, networkFee: { amount: "100000", usd: null } }])[0]?.networkFee)
+      .toEqual({ amount: "100000", usd: null, rentLamports: undefined });
+    expect(parseSpends([base])[0]?.networkFee).toBeUndefined();
   });
 });

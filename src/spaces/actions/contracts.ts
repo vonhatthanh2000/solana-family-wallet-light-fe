@@ -63,6 +63,8 @@ export type SpendDto = {
   declinerIds: string[];
   readyToSend: boolean;
   send: { digest: string; signed: Record<string, unknown> } | null;
+  /** amount already includes rentLamports; rentLamports is present only when this spend opens the recipient's token account. */
+  networkFee?: { amount?: string; usd?: string | null; rentLamports?: string };
   txHash: string | null;
 };
 
@@ -106,6 +108,30 @@ export function solReserveFrom(body: unknown): SolReserveDto | undefined {
     topUpLamports,
     coversSpends: typeof coversSpends === "number" && Number.isInteger(coversSpends) && coversSpends > 0 ? coversSpends : 0,
   };
+}
+
+/**
+ * What one spend execution needs from step 1: the single digest to sign, plus the rent the Space pays
+ * when this spend opens the recipient's token account. The rent is on the payload, not something the
+ * client may recompute — it is read from the chain.
+ */
+/** Read-only display values, so an unexpected shape loses the fee line rather than the whole list. */
+function networkFeeOf(value: unknown): SpendDto["networkFee"] {
+  const fee = record(value);
+  if (!fee) return undefined;
+  return {
+    amount: optionalBaseUnits(fee.amount),
+    usd: typeof fee.usd === "string" ? fee.usd : null,
+    rentLamports: optionalBaseUnits(fee.rentLamports),
+  };
+}
+
+export function executionPayload(response: unknown): { digest: string; rentLamports?: string } {
+  const send = record(record(response)?.send);
+  if (!send || typeof send.digest !== "string" || !send.digest) {
+    throw new Error("Signing response is missing send.digest");
+  }
+  return { digest: send.digest, rentLamports: optionalBaseUnits(send.rentLamports) };
 }
 
 export function parseCategories(value: unknown): SpaceCategoryDto[] {
@@ -176,6 +202,7 @@ export function parseSpends(value: unknown): SpendDto[] {
       approverIds: strings(row.approverIds, "spend.approverIds"), declinerIds: strings(row.declinerIds, "spend.declinerIds"),
       readyToSend: row.readyToSend === true,
       send: send ? { digest: text(send.digest, "spend.send.digest"), signed: asRecord(send.signed, "spend.send.signed") } : null,
+      networkFee: networkFeeOf(row.networkFee),
       txHash: row.txHash === null ? null : text(row.txHash, "spend.txHash"),
     };
   });

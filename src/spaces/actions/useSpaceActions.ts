@@ -4,10 +4,12 @@ import { getDepositAddresses } from "../../api/endpoints";
 import { pollIntervalMs } from "../../flow/poll-interval";
 import { normalizeError } from "../../flow/state";
 import { signRawSolanaDigest } from "../../solana/signing";
+import { baseUnitsToDecimal } from "../deposits";
 import type { ConnectedSigner } from "../../solana/signers/types";
 import type { FamilyRoleDto } from "../../members/contracts";
 import type { SpaceChainDto, VaultDto } from "../contracts";
 import {
+  executionPayload,
   solReserveFrom,
   type MoneyQuoteDto, type SolReserveDto, type SpaceCategoryDto, type SpacePermission,
   type SpendDto, type VaultTokenOptionDto,
@@ -170,11 +172,14 @@ export function useSpaceActions({ spaceId, chains, vaults, role, actorUserId, si
       const first = await spaceActionApi.executeSpend(spaceId, spend.spendId);
       if (first.status === "queued") { setNotice("Spend is queued behind another Space action. Refresh and retry."); return; }
       if (first.status !== "signing") { setNotice(`Spend status: ${String(first.status)}. Submitted is not final; keep polling.`); await refresh(); return; }
-      const send = first.send as { digest?: unknown } | undefined;
-      if (typeof send?.digest !== "string") throw new Error("Signing response is missing send.digest");
-      const signature = await signRawSolanaDigest(send.digest, signer);
+      const payload = executionPayload(first);
+      const signature = await signRawSolanaDigest(payload.digest, signer);
       const submitted = await spaceActionApi.executeSpend(spaceId, spend.spendId, signature);
-      setNotice(`Spend status: ${String(submitted.status)}. Broadcast is not settlement; keep polling.`);
+      // The Space pays the recipient's token-account rent when this spend opens it.
+      const rent = payload.rentLamports && payload.rentLamports !== "0"
+        ? ` It opened the recipient's token account: the Space paid ${baseUnitsToDecimal(payload.rentLamports, 9)} SOL of rent.`
+        : "";
+      setNotice(`Spend status: ${String(submitted.status)}. Broadcast is not settlement; keep polling.${rent}`);
       await refresh();
     }),
     cancelSpend: (spendId: string) => run(`cancel-spend:${spendId}`, async () => { await spaceActionApi.cancelSpend(spaceId, spendId); await changed("Spend cancelled and its reservation released."); }),

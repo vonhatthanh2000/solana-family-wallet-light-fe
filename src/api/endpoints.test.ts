@@ -162,6 +162,31 @@ describe("endpoint serialization", () => {
     });
   });
 
+  it("reports a native SOL deposit as the NATIVE coin, with no token address", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await reportSendTransaction({
+      chainId: "6ad5e4f5c185f4b66217f297",
+      txHash: "signature",
+      from: "sender",
+      to: "space-pda",
+      amount: "0.3",
+      coin: "NATIVE",
+    });
+
+    // The endpoint validates coin against NATIVE and TOKEN; a symbol such as "SOL" is a 400.
+    expect(JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body))).toEqual({
+      chainId: "6ad5e4f5c185f4b66217f297",
+      txHash: "signature",
+      txType: "SEND",
+      from: "sender",
+      to: "space-pda",
+      amount: "0.3",
+      coin: "NATIVE",
+    });
+  });
+
   it("quotes one token's deposit cost and keeps every lamport figure a string", async () => {
     const quote = {
       tokenId: "698161a631fcd4a91bf994c4",

@@ -59,8 +59,6 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
   const [spendNote, setSpendNote] = useState("");
   const busy = Boolean(actions.busyAction);
   const solChain = dashboard.space.chains.find((chain) => chain.chainType === "SOL" && chain.isDeployed);
-  // Until the Space holds its reserve, Solana propose and execute are refused on arrival.
-  const reserveBlocksSolana = Boolean(actions.solReserve) && (!spendChainId || spendChainId === solChain?.chainId);
   const chainTokens = useMemo(
     () => actions.vaultTokens.filter((token) => token.chainId === spendChainId),
     [actions.vaultTokens, spendChainId],
@@ -259,7 +257,7 @@ export function SpaceActionPanel({ dashboard, role, actorUserId, signer, fallbac
             <label>Source<select value={spendVaultId} onChange={(event) => setSpendVaultId(event.target.value)}><option value="">{actions.roleKey === "CHILD" ? "Select assigned Vault" : "Shared Wallet"}</option>{sourceVaults.map((vault) => <option value={vault.vaultId} key={vault.vaultId}>{vault.name}</option>)}</select></label>
             <label>Category<select value={spendCategoryId} onChange={(event) => setSpendCategoryId(event.target.value)}><option value="">No category</option>{actions.categories.map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label>
             <label>Note<input maxLength={60} value={spendNote} onChange={(event) => setSpendNote(event.target.value)} /></label>
-            <div className="button-row"><button type="button" className="secondary" disabled={busy || !spendChainId} onClick={() => void actions.previewSpendFee(spendChainId)}>Preview fee</button><button disabled={busy || reserveBlocksSolana || !spendChainId || !spendToken || !/^[1-9]\d*$/.test(spendAmount) || !destination || (actions.roleKey === "CHILD" && !spendVaultId)}>Propose spend</button></div>
+            <div className="button-row"><button type="button" className="secondary" disabled={busy || !spendChainId} onClick={() => void actions.previewSpendFee(spendChainId)}>Preview fee</button><button disabled={busy || !spendChainId || !spendToken || !/^[1-9]\d*$/.test(spendAmount) || !destination || (actions.roleKey === "CHILD" && !spendVaultId)}>Propose spend</button></div>
           </form>
           {actions.feePreview && <div className="result warning"><strong>Network fee preview</strong><pre>{JSON.stringify(actions.feePreview, null, 2)}</pre></div>}
         </div>
@@ -286,6 +284,10 @@ function SpendActionCard({ spend, actions, busy }: { spend: SpendDto; actions: R
   const open = ["open", "queued", "signing"].includes(spend.status);
   // Executing is what actually spends, so a short reserve refuses it however the spend got here.
   const reserveShort = spend.chainType === "SOL" && Boolean(actions.solReserve);
+  // Present only when this spend opens the recipient's token account; the Space pays that rent once.
+  const rentLamports = spend.networkFee?.rentLamports && spend.networkFee.rentLamports !== "0"
+    ? spend.networkFee.rentLamports
+    : undefined;
   const [categoryId, setCategoryId] = useState(spend.categoryId ?? "");
   return (
     <article className="request-card">
@@ -295,11 +297,12 @@ function SpendActionCard({ spend, actions, busy }: { spend: SpendDto; actions: R
       <div className="button-row">
         {actions.can("VOTE") && !mine && !voted && spend.status === "open" && <button disabled={busy} onClick={() => void actions.approveSpend(spend)}>Sign approval</button>}
         {actions.can("VOTE") && !mine && spend.status === "open" && <button className="danger" disabled={busy} onClick={() => void actions.declineSpend(spend.spendId)}>Decline</button>}
-        {mine && spend.readyToSend && open && <button disabled={busy || reserveShort} onClick={() => void actions.executeSpend(spend)}>Sign and execute</button>}
+        {mine && spend.readyToSend && open && <button disabled={busy} onClick={() => void actions.executeSpend(spend)}>Sign and execute</button>}
         {(mine || actions.roleKey === "OWNER") && spend.status === "open" && <button className="secondary" disabled={busy} onClick={() => void actions.cancelSpend(spend.spendId)}>Cancel</button>}
       </div>
       {actions.can("MANAGE_ASSETS") && <div className="button-row"><select aria-label="Spend category" value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">No category</option>{actions.categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select><button className="secondary" disabled={busy || categoryId === (spend.categoryId ?? "")} onClick={() => void actions.setSpendCategory(spend.spendId, categoryId || null)}>Save category</button></div>}
-      {reserveShort && open && <p className="hint">Waiting on the Space's SOL reserve — deposit SOL above before executing.</p>}
+      {spend.chainType === "SOL" && spend.networkFee?.amount && <p className="hint">Network fee: {baseUnitsToDecimal(spend.networkFee.amount, 9)} SOL{spend.networkFee.usd ? ` · $${spend.networkFee.usd}` : ""}{rentLamports ? `, which includes opening the recipient's token account: ${baseUnitsToDecimal(rentLamports, 9)} SOL` : ""}. Paid by the Space.</p>}
+      {reserveShort && open && <p className="hint">The Space's SOL reserve is short, so this will be refused until someone deposits SOL — see the notice above.</p>}
       {spend.txHash && <span className="copyable"><code className="wrap">Broadcast: {spend.txHash} (not final until executed)</code><CopyButton value={spend.txHash} label="spend transaction hash" /></span>}
     </article>
   );

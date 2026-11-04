@@ -148,8 +148,11 @@ export type SendTransactionReport = {
    * units. Still a string: never parseFloat it.
    */
   amount: string;
-  /** The literal "TOKEN" for any SPL transfer, with tokenAddress carrying the mint; else the native coin. */
-  coin: "TOKEN" | (string & {});
+  /**
+   * Not a symbol: the endpoint validates against exactly these two. "TOKEN" for any SPL transfer,
+   * with tokenAddress carrying the mint; "NATIVE" for SOL, with no tokenAddress.
+   */
+  coin: "NATIVE" | "TOKEN";
   tokenAddress?: string;
 };
 

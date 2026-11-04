@@ -87,4 +87,18 @@ describe("Space action HTTP adapter", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.example.test/family-wallet/spaces/space/vaults/vault%2Fid/rule-change");
     expect(JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string)).toEqual(rule);
   });
+
+  it("posts a spend execution as a request, then with the one signature it needs", async () => {
+    // A Response body reads once, so each call needs its own.
+    const fetchMock = vi.fn().mockImplementation(async () => response({ status: "signing" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const body = (call: number) => JSON.parse((fetchMock.mock.calls[call]?.[1] as RequestInit).body as string);
+
+    await spaceActionApi.executeSpend("space", "spend");
+    await spaceActionApi.executeSpend("space", "spend", "aa");
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.example.test/family-wallet/spaces/space/spend/execute");
+    expect(body(0)).toEqual({ spendId: "spend" });
+    expect(body(1)).toEqual({ spendId: "spend", signature: "aa" });
+  });
 });

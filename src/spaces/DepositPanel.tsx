@@ -218,7 +218,7 @@ export function DepositPanel({ spaceId, chain, tokenDepositAddresses, signer, fa
         to: next.destinationAddress,
         // This endpoint takes whole units, unlike the transfer instruction.
         amount: baseUnitsToDecimal(next.baseUnits, depositToken?.decimals ?? 9),
-        coin: depositToken ? "TOKEN" : "SOL",
+        coin: depositToken ? "TOKEN" : "NATIVE",
         tokenAddress: depositToken?.tokenAddress,
       }).catch(() => undefined);
     } catch (failure) {
